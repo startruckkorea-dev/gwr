@@ -116,7 +116,7 @@ body{font-family:'Segoe UI',sans-serif;background:#f3f2f1;min-height:100vh;color
       <button class="btn btn-amber" id="btn-save" onclick="saveBack()" disabled title="FIN 열이 비어 있는 건에만, 추출한 값을 GW_Requests 에 적는다">💾 GW_Requests 에 저장</button>
     </div>
     <div class="progress" id="prog"><div id="prog-bar"></div></div>
-    <div class="msg" id="msg">로그인 뒤 「FIN 추출 실행」을 누르세요.</div>
+    <div class="msg" id="msg">로그인하면 GW_Requests 전 건을 읽어 FIN 을 추출합니다.</div>
     <div class="summary" id="summary"></div>
     <div class="tbl-scroll">
       <table class="list-table">
@@ -126,7 +126,7 @@ body{font-family:'Segoe UI',sans-serif;background:#f3f2f1;min-height:100vh;color
           <th style="width:128px">Amount type</th><th class="c-amt" style="width:112px">Total Amount<br><span style="font-weight:400;font-size:.62rem">(VAT Excluded)</span></th>
           <th style="width:76px">상태</th><th style="width:124px">신청일</th>
         </tr></thead>
-        <tbody id="body"><tr><td colspan="12" style="text-align:center;color:#a19f9d;padding:24px">아직 조회하지 않았습니다.</td></tr></tbody>
+        <tbody id="body"><tr><td colspan="12" style="text-align:center;color:#a19f9d;padding:24px">GW_Requests 를 읽는 중…</td></tr></tbody>
       </table>
     </div>
     <div class="pager" id="pager"></div>
@@ -230,7 +230,9 @@ async function boot(account){
     try{ const cols = await api('/sites/'+siteId+'/lists/'+LIST_REQ+'/columns?$select=name'); _finColumn = (cols.value||[]).some(c=>c.name==='FIN'); }catch(e){ _finColumn=false; }
     document.getElementById('fin-notice').style.display = _finColumn ? 'none' : 'block';
     if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    setMsg('준비됐습니다. 「FIN 추출 실행」을 누르면 GW_Requests 전 건을 읽습니다.');
+    // 로그인하면 바로 ①②③(열 · 파일명 · 본문) 추출을 돌려 목록을 보여 준다 — 이 화면의 목적이 그 목록이라 단추를 누를 이유가 없다(09-23).
+    // PDF 본문 읽기는 파일을 내려받아야 하므로 「PDF 까지 읽기」 로만 돈다.
+    await runExtract(false);
   }catch(e){ setMsg('SharePoint 연결 오류: '+e.message, '#a4262c'); }
 }
 
