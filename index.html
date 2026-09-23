@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STK Goodwill FIN Report</title>
+<!-- 외부 라이브러리: MSAL(로그인) · SheetJS(Excel) · pdf.js(첨부 PDF 본문 읽기). CSP 메타 없음 — GW 와 같다. -->
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.0/lib/msal-browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#f3f2f1;min-height:100vh;color:#323130}
+#login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(145deg,#0f2744 0%,#0078d4 100%)}
+.login-card{background:#fff;border-radius:20px;padding:52px 48px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.22);max-width:400px;width:100%}
+.login-logo{font-size:2.4rem;margin-bottom:10px}
+.login-title{font-size:1.25rem;font-weight:700;color:#0f2744}
+.login-co{font-size:.85rem;color:#605e5c;margin-top:4px}
+.login-guide{font-size:.8rem;color:#a19f9d;margin:22px 0 14px}
+.btn-login{background:linear-gradient(135deg,#0078d4,#005a9e);color:#fff;border:none;border-radius:10px;padding:13px 0;font-size:.92rem;font-weight:600;cursor:pointer;width:100%;font-family:inherit}
+.btn-login:disabled{opacity:.6;cursor:default}
+#login-err{color:#a4262c;font-size:.78rem;margin-top:10px;min-height:1em}
+.login-page-footer{position:fixed;bottom:0;left:0;right:0;padding:10px 24px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:rgba(255,255,255,.55);background:rgba(0,0,0,.18)}
+#app{display:none;max-width:1500px;margin:0 auto;padding:20px}
+.card{background:#fff;border-radius:8px;padding:20px 24px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.hdr h1{font-size:1.2rem;font-weight:700;color:#323130}
+.hdr .sub{font-size:.78rem;color:#605e5c;margin-top:3px}
+.hdr .who{text-align:right;font-size:.8rem}
+.hdr .who b{display:block;font-size:.85rem}
+.hdr .who span{color:#605e5c;font-size:.72rem}
+.btn{border:none;border-radius:6px;padding:7px 14px;font-size:.8rem;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.btn-blue{background:#0078d4;color:#fff}.btn-blue:hover{background:#106ebe}
+.btn-green{background:#107c10;color:#fff}.btn-green:hover{background:#0b6a0b}
+.btn-amber{background:#7d5700;color:#fff}.btn-amber:hover{background:#6a4a00}
+.btn-gray{background:#fff;color:#323130;border:1px solid #c8c6c4}.btn-gray:hover{background:#f3f2f1}
+.btn:disabled{opacity:.55;cursor:default}
+.filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.filters select,.filters input{padding:7px 10px;border:1px solid #c8c6c4;border-radius:6px;font-size:.8rem;font-family:inherit;background:#fff}
+.filters .spacer{flex:1}
+.summary{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px;font-size:.76rem}
+.summary .pill{background:#f3f2f1;border-radius:12px;padding:3px 10px;color:#323130}
+.summary .pill b{color:#0078d4}
+.progress{height:6px;background:#edebe9;border-radius:3px;overflow:hidden;margin:6px 0 10px;display:none}
+.progress>div{height:100%;background:#0078d4;width:0;transition:width .2s}
+.msg{font-size:.76rem;color:#605e5c;min-height:1.1em}
+.tbl-scroll{overflow-x:auto}
+.list-table{width:100%;border-collapse:collapse;font-size:.8rem;table-layout:fixed;min-width:1180px}
+.list-table th{padding:8px 8px;text-align:left;background:#f3f2f1;border-bottom:1px solid #edebe9;font-weight:600;color:#323130;font-size:.74rem;white-space:nowrap}
+.list-table td{padding:7px 8px;border-bottom:1px solid #edebe9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:20px}
+.list-table tr:hover td{background:#f8faff}
+.list-table td.c-amt,.list-table th.c-amt{text-align:right}
+.list-table td:has(> .badge){text-overflow:clip}
+.badge{border-radius:10px;padding:2px 8px;font-size:.68rem;font-weight:600;display:inline-block}
+.badge-대기{background:#fff4ce;color:#7d5700}.badge-승인완료{background:#dff6dd;color:#107c10}.badge-반려{background:#fde7e9;color:#a4262c}
+.badge-철회{background:#f1f5f9;color:#64748b}.badge-진행중,.badge-처리중{background:#dbeafe;color:#1d4ed8}
+.badge-type{background:#e1f0ff;color:#0078d4}
+.src-열{background:#dff6dd;color:#107c10}.src-파일명{background:#e1f0ff;color:#0078d4}.src-본문{background:#ede9fe;color:#5b21b6}
+.src-PDF{background:#fff4ce;color:#7d5700}.src-미확인{background:#f3f2f1;color:#a19f9d}.src-여러개{background:#fde7e9;color:#a4262c}
+.c-fin{font-family:Consolas,'Segoe UI',monospace;font-size:.76rem;letter-spacing:.02em}
+.foot{text-align:center;font-size:.72rem;color:#a19f9d;padding:14px 0 6px}
+.pager{display:flex;justify-content:center;gap:4px;margin-top:12px;flex-wrap:wrap}
+.pager button{min-width:30px;height:28px;border:1px solid #d6dce6;background:#fff;border-radius:4px;font-size:.75rem;cursor:pointer;font-family:inherit}
+.pager button.on{background:#0078d4;color:#fff;border-color:#0078d4}
+.pager button:disabled{opacity:.4;cursor:default}
+.notice{background:#fff8e6;border:1px solid #f0d9a6;border-radius:8px;padding:10px 14px;font-size:.76rem;color:#7d5700;margin-bottom:12px;display:none}
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">🔎</div>
+    <div class="login-title">Goodwill FIN Report</div>
+    <div class="login-co">Goodwill 신청 건의 FIN(차대번호) 일괄 추출</div>
+    <div class="login-guide">Hyosung M365 계정으로 로그인하세요</div>
+    <button class="btn-login" id="btn-login" onclick="signIn()" disabled>로딩 중...</button>
+    <div id="login-err"></div>
+    <div style="font-size:.75rem;color:#a19f9d;margin-top:24px">© Star Truck Korea · gwr</div>
+  </div>
+  <div class="login-page-footer">
+    <span>© 2026 Star Truck Korea · Goodwill FIN Report</span>
+    <span>This system is internally developed by Star Truck Korea IT Dept. Unauthorized access is strictly prohibited.</span>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <div class="card hdr">
+    <div>
+      <h1>STK Goodwill FIN Report</h1>
+      <div class="sub">GW_Requests 전 건에서 FIN(차대번호)을 뽑아 목록 · Excel 로 — FIN 열 → 첨부 파일명 → 요청 제목 · Description → 첨부 PDF 본문 순으로 찾는다</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+      <div class="who"><b id="hdr-name"></b><span id="hdr-email"></span></div>
+      <div style="display:flex;gap:6px">
+        <a class="btn btn-blue" href="https://aps.startruckkorea.com/" style="text-decoration:none">📊 APS</a>
+        <a class="btn btn-gray" href="https://gw.startruckkorea.com/" style="text-decoration:none">Goodwill 열기</a>
+        <button class="btn btn-gray" onclick="signOut()">로그아웃</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="notice" id="fin-notice">GW_Requests 에 FIN 열이 없습니다 — 추출은 되지만 「GW_Requests 에 저장」은 열을 만든 뒤에 쓸 수 있습니다.</div>
+    <div class="filters">
+      <select id="f-status" onchange="render()"><option value="">전체 상태</option><option>대기</option><option>승인완료</option><option>반려</option><option>철회</option></select>
+      <select id="f-source" onchange="render()"><option value="">전체 Source</option></select>
+      <select id="f-src" onchange="render()"><option value="">전체 출처</option><option value="열">FIN 열</option><option value="파일명">파일명</option><option value="본문">본문</option><option value="PDF">PDF</option><option value="여러개">여러 개(확인 필요)</option><option value="미확인">미확인</option></select>
+      <input id="f-kw" placeholder="신청자 / Title / 요청 제목 / FIN 검색" style="min-width:240px" oninput="render()">
+      <span class="spacer"></span>
+      <button class="btn btn-blue" id="btn-extract" onclick="runExtract(false)">🔎 FIN 추출 실행</button>
+      <button class="btn btn-gray" id="btn-extract-pdf" onclick="runExtract(true)" title="파일명 · 본문에서 못 찾은 건의 첨부 PDF 를 내려받아 본문에서 찾는다 (시간이 걸린다)">📄 PDF 까지 읽기</button>
+      <button class="btn btn-green" id="btn-excel" onclick="exportExcel()" disabled>📊 Excel 내보내기</button>
+      <button class="btn btn-amber" id="btn-save" onclick="saveBack()" disabled title="FIN 열이 비어 있는 건에만, 추출한 값을 GW_Requests 에 적는다">💾 GW_Requests 에 저장</button>
+    </div>
+    <div class="progress" id="prog"><div id="prog-bar"></div></div>
+    <div class="msg" id="msg">로그인 뒤 「FIN 추출 실행」을 누르세요.</div>
+    <div class="summary" id="summary"></div>
+    <div class="tbl-scroll">
+      <table class="list-table">
+        <thead><tr>
+          <th style="width:44px">번호</th><th style="width:178px">신청자</th><th style="width:158px">Title</th><th>요청 제목</th>
+          <th style="width:132px">Source</th><th style="width:150px">Type</th><th style="width:158px">FIN</th><th style="width:78px">출처</th>
+          <th style="width:128px">Amount type</th><th class="c-amt" style="width:112px">Total Amount<br><span style="font-weight:400;font-size:.62rem">(VAT Excluded)</span></th>
+          <th style="width:76px">상태</th><th style="width:124px">신청일</th>
+        </tr></thead>
+        <tbody id="body"><tr><td colspan="12" style="text-align:center;color:#a19f9d;padding:24px">아직 조회하지 않았습니다.</td></tr></tbody>
+      </table>
+    </div>
+    <div class="pager" id="pager"></div>
+  </div>
+  <div class="foot">© 2026 Star Truck Korea · Goodwill FIN Report · This system is internally developed by Star Truck Korea IT Dept.</div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   STK Goodwill FIN Report (gwr) — 2026-09-23 신규
+   목적: Goodwill(GW_Requests) 전 건에서 차량 FIN(차대번호, 17자리)을 일괄 추출해 관리자 목록과 같은 열로 보여 주고
+        Excel 로 내보낸다. 필요하면 추출한 값을 GW_Requests.FIN 열(비어 있는 건만)에 적어 둔다.
+   찾는 순서(출처 표시):
+     ① 열   — GW_Requests.FIN (09-23 이후 신청서에서 직접 받는 값)
+     ② 파일명 — 첨부 파일 이름 (예: STK Goodwill application_정한용_W1T963425R0738112_signed.pdf)
+     ③ 본문  — 요청 제목 · Description (예: "2. Vehicle: W1T963425R0738112 (경남99바3541)")
+     ④ PDF   — 첨부 PDF 본문(pdf.js) 에서 "FIN (차대번호)" 뒤의 값. 파일을 내려받아야 하므로 「PDF 까지 읽기」 로만 돈다
+   후보가 둘 이상이고 서로 다르면 「여러 개」 로 표시해 사람이 고르게 한다. 어디에도 없으면 「미확인」.
+   설계: GW 와 같은 로그인(MSAL 리다이렉트) · 같은 SharePoint 사이트. 쓰기는 「GW_Requests 에 저장」 하나뿐이고
+        FIN 이 비어 있는 건만 PATCH 한다(사람이 넣은 값은 덮지 않는다).
+   ═══════════════════════════════════════════════════════════════════ */
+const CLIENT_ID  = '432976c2-b43a-492e-8213-ece505fa1f51';
+const TENANT_ID  = '19cab1f5-21f4-44df-8ac6-96d6ca595203';
+const SITE_PATH  = 'startruckkorea.sharepoint.com:/sites/STK-DB:';
+const GRAPH      = 'https://graph.microsoft.com/v1.0';
+const SCOPES     = ['User.Read','Sites.ReadWrite.All','Files.ReadWrite.All'];
+const LIST_REQ   = 'GW_Requests';
+const CACHE_KEY  = 'gwr_fin_cache_v1';    // PDF 본문에서 찾은 값은 브라우저에 남겨 다음 실행 때 다시 내려받지 않는다
+
+let msal_g = null, user = null, siteId = null;
+let _rows = [];           // { id, f, fin, src, cands, finCol }
+let _finColumn = false;   // GW_Requests 에 FIN 열이 있는가
+let _page = 0; const PAGE = 50;
+
+// ── 공통 헬퍼 ──────────────────────────────────────────────────────
+function escHtml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function spText(s){   // SharePoint 여러 줄 텍스트의 HTML 껍데기를 걷어낸다(GW 와 같은 함수)
+  return String(s == null ? '' : s).replace(/<\s*br\s*\/?>/gi,'\n').replace(/<\/\s*(div|p|li|tr)\s*>/gi,'\n').replace(/<[^>]*>/g,'')
+    .replace(/&nbsp;/gi,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&').replace(/&#58;/g,':');
+}
+function fmtDate(s){ if(!s) return ''; const d=new Date(new Date(s).getTime()+9*3600*1000); return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0')+' '+String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0'); }
+function fmtGWAmount(val){ if(!val) return '-'; return String(val).replace(/(\d+)/g, n=>Number(n).toLocaleString('ko-KR')); }
+function amountDigits(v){ return String(v == null ? '' : v).replace(/[^0-9]/g,''); }
+function setMsg(t, color){ const el=document.getElementById('msg'); el.textContent=t; el.style.color=color||'#605e5c'; }
+function setProg(done,total){ const p=document.getElementById('prog'); if(total<=0){p.style.display='none';return;} p.style.display='block'; document.getElementById('prog-bar').style.width=Math.round(done/total*100)+'%'; }
+
+// ── 로그인 (GW 와 같은 리다이렉트 방식) ───────────────────────────
+async function signIn(){
+  try{ if(window!==window.top){ window.open(window.location.href,'_blank'); return; } await msal_g.loginRedirect({scopes:SCOPES}); }
+  catch(e){ document.getElementById('login-err').textContent = e.message; }
+}
+function signOut(){ msal_g.logoutRedirect({ postLogoutRedirectUri: window.location.origin + window.location.pathname }); }
+async function token(){
+  try{ return (await msal_g.acquireTokenSilent({scopes:SCOPES,account:msal_g.getActiveAccount()})).accessToken; }
+  catch(e){
+    if(e.name==='InteractionRequiredAuthError'||(e.errorCode&&e.errorCode.includes('interaction_required'))){ await msal_g.acquireTokenRedirect({scopes:SCOPES}); return null; }
+    throw e;
+  }
+}
+async function api(path, method='GET', body=null, _retry=0){
+  const t = await token();
+  const opts = { method, headers: { Authorization:'Bearer '+t, 'Content-Type':'application/json', Prefer:'HonorNonIndexedQueriesWarningMayFailRandomly' } };
+  if(body) opts.body = JSON.stringify(body);
+  const res = await fetch(GRAPH + path, opts);
+  if(!res.ok && (res.status===429 || (method==='GET' && [503,504].includes(res.status))) && _retry<3){
+    const ra=parseInt(res.headers.get('Retry-After')||'0',10); const wait=ra>0?ra*1000:Math.pow(2,_retry)*800;
+    await new Promise(r=>setTimeout(r,wait)); return api(path,method,body,_retry+1);
+  }
+  if(!res.ok) throw new Error((await res.json().catch(()=>null))?.error?.message || res.status);
+  return res.status===204 ? null : res.json();
+}
+async function apiAll(path){
+  if(!/[?&]\$top=/.test(path)) path += (path.includes('?')?'&':'?') + '$top=999';
+  let items=[], url=path, pages=0;
+  while(url){ const d=await api(url); items=items.concat(d.value||[]); url=d['@odata.nextLink']?d['@odata.nextLink'].replace(GRAPH,''):null; if(++pages>60) break; }
+  return { value: items };
+}
+
+window.addEventListener('load', async () => {
+  const btn = document.getElementById('btn-login');
+  const fallback = setTimeout(()=>{ if(btn&&btn.disabled){ btn.disabled=false; btn.textContent='Hyosung M365 계정으로 로그인'; } }, 5000);
+  try{
+    msal_g = new msal.PublicClientApplication({ auth:{ clientId:CLIENT_ID, authority:'https://login.microsoftonline.com/'+TENANT_ID, redirectUri: window.location.origin + window.location.pathname }, cache:{ cacheLocation:'localStorage', storeAuthStateInCookie:false } });
+    await msal_g.initialize(); clearTimeout(fallback);
+    const resp = await msal_g.handleRedirectPromise();
+    if(resp){ msal_g.setActiveAccount(resp.account); await boot(resp.account); return; }
+    const accounts = msal_g.getAllAccounts();
+    if(accounts.length){ msal_g.setActiveAccount(accounts[0]); await boot(accounts[0]); return; }
+    if(btn){ btn.disabled=false; btn.textContent='Hyosung M365 계정으로 로그인'; }
+  }catch(e){ clearTimeout(fallback); if(btn){ btn.disabled=false; btn.textContent='Hyosung M365 계정으로 로그인'; } console.warn('MSAL 초기화 오류:', e.message); }
+});
+
+async function boot(account){
+  user = account;
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app').style.display='block';
+  document.getElementById('hdr-name').textContent = account.name || account.username;
+  document.getElementById('hdr-email').textContent = account.username || '';
+  try{
+    const site = await api('/sites/'+SITE_PATH); siteId = site.id;
+    try{ const cols = await api('/sites/'+siteId+'/lists/'+LIST_REQ+'/columns?$select=name'); _finColumn = (cols.value||[]).some(c=>c.name==='FIN'); }catch(e){ _finColumn=false; }
+    document.getElementById('fin-notice').style.display = _finColumn ? 'none' : 'block';
+    if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    setMsg('준비됐습니다. 「FIN 추출 실행」을 누르면 GW_Requests 전 건을 읽습니다.');
+  }catch(e){ setMsg('SharePoint 연결 오류: '+e.message, '#a4262c'); }
+}
+
+// ── FIN 찾기 ───────────────────────────────────────────────────────
+/* VIN/FIN 은 17자리 영숫자이고 I · O · Q 를 쓰지 않는다. 벤츠 트럭은 W 로 시작(WDB · W1T · WEB · W1V …).
+   후보에 점수를 주어 고른다: FIN · 차대번호 · VIN 라벨 바로 뒤(+3) · W 로 시작(+2) · 영문과 숫자가 섞임(+1). */
+// \b 는 밑줄(_)을 글자로 보므로 「…_W1T963425R0738112_signed.pdf」 처럼 밑줄로 이어진 파일명에서는 경계가 안 잡힌다.
+// 앞뒤가 영숫자가 아니면 경계로 본다(lookbehind/lookahead).
+const FIN_RE = /(?<![A-Z0-9])[A-HJ-NPR-Z0-9]{17}(?![A-Z0-9])/g;
+function finCandidates(text){
+  const out = new Map();
+  const s = String(text||'').toUpperCase();
+  let m;
+  while((m = FIN_RE.exec(s))){
+    const v = m[0];
+    if(!/[A-Z]/.test(v) || !/[0-9]/.test(v)) continue;          // 숫자만 · 영문만은 FIN 이 아니다
+    const before = s.slice(Math.max(0, m.index-40), m.index);
+    let score = 0;
+    if(/(FIN|VIN|차대\s*번호|차대번호|CHASSIS)/.test(before)) score += 3;
+    if(v.startsWith('W')) score += 2;
+    score += 1;
+    if(!out.has(v) || out.get(v) < score) out.set(v, score);
+  }
+  return [...out.entries()].sort((a,b)=>b[1]-a[1]).map(([v,score])=>({v,score}));
+}
+function normFin(v){ return String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
+
+// 첨부 문자열 → [{name, driveId, itemId}] (GW 와 같은 두 형식: name||ENC||base64(driveId###itemId) · name||driveId||itemId)
+function parseAttachments(v){
+  const clean = spText(v).replace(/\r\n?/g,'\n').trim();
+  if(!clean) return [];
+  return clean.split(/[;\n]+/).map(e=>e.trim()).filter(e=>e&&e.includes('||')).map(entry=>{
+    const first = entry.indexOf('||'); const name = entry.slice(0,first); const rest = entry.slice(first+2);
+    if(rest.startsWith('ENC||')){
+      try{ const dec = decodeURIComponent(escape(atob(rest.slice(5)))); const k = dec.indexOf('###'); if(k>=0) return { name, driveId: dec.slice(0,k), itemId: dec.slice(k+3) }; }catch(ex){}
+      return { name };
+    }
+    const parts = entry.split('||');
+    if(parts.length>=3) return { name, driveId: parts[1], itemId: parts.slice(2).join('||') };
+    return { name };
+  });
+}
+
+// PDF 본문 텍스트(앞 3쪽) — pdf.js. 스캔 이미지 PDF 는 글자가 없어 빈 문자열이 돌아온다.
+async function pdfText(driveId, itemId){
+  const t = await token();
+  const res = await fetch(GRAPH+'/drives/'+encodeURIComponent(driveId)+'/items/'+encodeURIComponent(itemId)+'/content', { headers:{ Authorization:'Bearer '+t } });
+  if(!res.ok) throw new Error('다운로드 '+res.status);
+  const buf = await res.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let text = '';
+  for(let p=1; p<=Math.min(pdf.numPages,3); p++){
+    const page = await pdf.getPage(p); const tc = await page.getTextContent();
+    text += tc.items.map(i=>i.str).join(' ') + '\n';
+  }
+  return text;
+}
+
+function loadCache(){ try{ return JSON.parse(localStorage.getItem(CACHE_KEY)||'{}'); }catch(e){ return {}; } }
+function saveCache(c){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(c)); }catch(e){} }
+
+// 한 건 판정. readPdf=true 면 ①②③ 에서 못 찾았을 때 첨부 PDF 를 읽는다.
+async function resolveRow(row, readPdf, cache){
+  const f = row.f;
+  const col = normFin(f.FIN);
+  if(col.length===17){ row.fin=col; row.src='열'; row.cands=[col]; return; }
+  const atts = parseAttachments(f.AttachedFiles);
+  const fromNames = finCandidates(atts.map(a=>a.name).join(' \n '));
+  const fromText  = finCandidates(spText(f.RequestTitle)+'\n'+spText(f.Description)+'\n'+spText(f.Title));
+  let cands = [], src = '';
+  if(fromNames.length){ cands = fromNames; src = '파일명'; }
+  else if(fromText.length){ cands = fromText; src = '본문'; }
+  if(!cands.length && readPdf){
+    const pdfs = atts.filter(a=>a.driveId&&a.itemId&&/\.pdf$/i.test(a.name));
+    for(const a of pdfs){
+      const key = a.driveId+'|'+a.itemId;
+      let text = cache[key];
+      if(text === undefined){ try{ text = await pdfText(a.driveId, a.itemId); }catch(e){ text = ''; console.warn('[gwr] PDF 읽기 실패', a.name, e.message); } cache[key] = text.slice(0,20000); }
+      const c = finCandidates(text);
+      if(c.length){ cands = c; src = 'PDF'; break; }
+    }
+  }
+  if(!cands.length){ row.fin=''; row.src='미확인'; row.cands=[]; return; }
+  // 서로 다른 값이 둘 이상이고 점수가 같으면 사람이 골라야 한다
+  const top = cands[0]; const rivals = cands.filter(c=>c.v!==top.v && c.score>=top.score);
+  row.cands = cands.map(c=>c.v);
+  if(rivals.length){ row.fin=top.v; row.src='여러개'; } else { row.fin=top.v; row.src=src; }
+}
+
+// ── 실행 ───────────────────────────────────────────────────────────
+async function runExtract(readPdf){
+  const bE=document.getElementById('btn-extract'), bP=document.getElementById('btn-extract-pdf'); bE.disabled=bP.disabled=true;
+  try{
+    if(!_rows.length){
+      setMsg('GW_Requests 를 읽는 중...');
+      const d = await apiAll('/sites/'+siteId+'/lists/'+LIST_REQ+'/items?$expand=fields');
+      _rows = (d.value||[]).map(it=>({ id: it.id, f: it.fields||{}, fin:'', src:'', cands:[] }))
+        .sort((a,b)=> String(b.f.RequestDate||'').localeCompare(String(a.f.RequestDate||'')) || (Number(b.id)-Number(a.id)));
+      const srcSel=document.getElementById('f-source'); const srcs=[...new Set(_rows.map(r=>r.f.Source).filter(Boolean))].sort();
+      srcSel.innerHTML='<option value="">전체 Source</option>'+srcs.map(s=>'<option>'+escHtml(s)+'</option>').join('');
+    }
+    const cache = loadCache(); let done=0; setProg(0,_rows.length);
+    for(const row of _rows){
+      await resolveRow(row, readPdf, cache);
+      done++; if(done%5===0||done===_rows.length){ setProg(done,_rows.length); setMsg((readPdf?'PDF 까지 읽는 중':'추출 중')+' … '+done+' / '+_rows.length); if(readPdf) await new Promise(r=>setTimeout(r,0)); }
+    }
+    if(readPdf) saveCache(cache);
+    setProg(0,0); _page=0; render();
+    document.getElementById('btn-excel').disabled=false;
+    document.getElementById('btn-save').disabled = !_finColumn;
+    const n=_rows.length, c=cnt('열'), fn=cnt('파일명'), tx=cnt('본문'), pd=cnt('PDF'), mu=cnt('여러개'), un=cnt('미확인');
+    setMsg('완료 — 총 '+n+'건: FIN 열 '+c+' · 파일명 '+fn+' · 본문 '+tx+' · PDF '+pd+' · 여러 개 '+mu+' · 미확인 '+un+(readPdf?'':'  (미확인이 남으면 「PDF 까지 읽기」)'), '#107c10');
+  }catch(e){ setProg(0,0); setMsg('오류: '+e.message, '#a4262c'); console.error(e); }
+  finally{ bE.disabled=bP.disabled=false; }
+}
+function cnt(src){ return _rows.filter(r=>r.src===src).length; }
+
+// ── 표 ─────────────────────────────────────────────────────────────
+function filtered(){
+  const st=document.getElementById('f-status').value, so=document.getElementById('f-source').value, sr=document.getElementById('f-src').value;
+  const kw=document.getElementById('f-kw').value.trim().toLowerCase();
+  return _rows.filter(r=>{
+    const f=r.f;
+    if(st && (f.Status||'')!==st) return false;
+    if(so && (f.Source||'')!==so) return false;
+    if(sr && r.src!==sr) return false;
+    if(kw && !([f.RequesterEmail,f.Title,f.RequestTitle,r.fin,r.cands.join(' ')].join(' ').toLowerCase().includes(kw))) return false;
+    return true;
+  });
+}
+function render(){
+  const rows = filtered(); const body=document.getElementById('body');
+  const total=rows.length, pages=Math.max(1,Math.ceil(total/PAGE)); if(_page>=pages) _page=pages-1;
+  const slice = rows.slice(_page*PAGE, _page*PAGE+PAGE);
+  document.getElementById('summary').innerHTML = '<span class="pill">표시 <b>'+total+'</b> / 전체 '+_rows.length+'건</span>'
+    + ['열','파일명','본문','PDF','여러개','미확인'].map(s=>'<span class="pill">'+s+' <b>'+rows.filter(r=>r.src===s).length+'</b></span>').join('');
+  if(!slice.length){ body.innerHTML='<tr><td colspan="12" style="text-align:center;color:#a19f9d;padding:24px">조회 결과가 없습니다.</td></tr>'; pager(pages); return; }
+  body.innerHTML = slice.map((r,i)=>{
+    const f=r.f, no=total-(_page*PAGE+i);
+    const amt=amountDigits(f.AmountValue);
+    const finCell = r.src==='여러개' ? '<span class="c-fin" title="후보: '+escHtml(r.cands.join(', '))+'">'+escHtml(r.fin)+' <span style="color:#a4262c">+'+(r.cands.length-1)+'</span></span>'
+                  : (r.fin ? '<span class="c-fin">'+escHtml(r.fin)+'</span>' : '<span style="color:#c8c6c4">-</span>');
+    return '<tr><td style="color:#a19f9d">'+no+'</td><td title="'+escHtml(f.RequesterEmail||'')+'">'+escHtml(f.RequesterEmail||'')+'</td>'
+      + '<td>'+escHtml(f.Title||'')+'</td><td title="'+escHtml(spText(f.RequestTitle))+'">'+escHtml(spText(f.RequestTitle))+'</td>'
+      + '<td><span class="badge badge-type">'+escHtml(f.Source||'')+'</span></td><td title="'+escHtml(f.GoodwillType||'')+'">'+escHtml(f.GoodwillType||'')+'</td>'
+      + '<td>'+finCell+'</td><td><span class="badge src-'+escHtml(r.src)+'">'+escHtml(r.src)+'</span></td>'
+      + '<td>'+escHtml(fmtGWAmount(f.Amount))+'</td><td class="c-amt">'+(amt?Number(amt).toLocaleString('ko-KR'):'<span style="color:#c8c6c4">-</span>')+'</td>'
+      + '<td><span class="badge badge-'+escHtml(f.Status||'대기')+'">'+escHtml(f.Status||'')+'</span></td><td>'+fmtDate(f.RequestDate)+'</td></tr>';
+  }).join('');
+  pager(pages);
+}
+function pager(pages){
+  const el=document.getElementById('pager'); if(pages<=1){ el.innerHTML=''; return; }
+  let h='<button onclick="goPage(0)" '+(_page===0?'disabled':'')+'>«</button><button onclick="goPage('+(_page-1)+')" '+(_page===0?'disabled':'')+'>‹</button>';
+  const s=Math.max(0,Math.min(_page-3,pages-7)), e=Math.min(pages,s+7);
+  for(let i=s;i<e;i++) h+='<button class="'+(i===_page?'on':'')+'" onclick="goPage('+i+')">'+(i+1)+'</button>';
+  h+='<button onclick="goPage('+(_page+1)+')" '+(_page>=pages-1?'disabled':'')+'>›</button><button onclick="goPage('+(pages-1)+')" '+(_page>=pages-1?'disabled':'')+'>»</button>';
+  el.innerHTML=h;
+}
+function goPage(p){ _page=Math.max(0,p); render(); }
+
+// ── Excel ──────────────────────────────────────────────────────────
+function exportExcel(){
+  const rows = filtered();
+  const headers = ['번호','신청자','Title','요청 제목','Source','Type','FIN','FIN 출처','FIN 후보','Amount type','Total Amount (VAT Excluded)','상태','신청일','Description'];
+  const data = [headers].concat(rows.map((r,i)=>{ const f=r.f; const amt=amountDigits(f.AmountValue);
+    return [rows.length-i, f.RequesterEmail||'', f.Title||'', spText(f.RequestTitle), f.Source||'', f.GoodwillType||'', r.fin||'', r.src||'', r.cands.join(', '), f.Amount||'', amt?Number(amt):'', f.Status||'', fmtDate(f.RequestDate), spText(f.Description)]; }));
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [6,28,24,40,20,30,20,10,40,18,18,10,18,60].map(w=>({wch:w}));
+  for(let r=1;r<data.length;r++){ const ref=XLSX.utils.encode_cell({c:10,r}); if(ws[ref]&&typeof ws[ref].v==='number') ws[ref].z='#,##0'; }
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'GW FIN');
+  const d=new Date(); const stamp=d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+  XLSX.writeFile(wb, 'GW_FIN_Report_'+stamp+'.xlsx');
+}
+
+// ── GW_Requests 에 저장 (비어 있는 건만) ────────────────────────────
+async function saveBack(){
+  if(!_finColumn){ alert('GW_Requests 에 FIN 열이 없습니다.'); return; }
+  const targets = _rows.filter(r=>r.fin && r.src!=='열' && r.src!=='여러개' && !normFin(r.f.FIN));
+  if(!targets.length){ alert('저장할 건이 없습니다 — FIN 열이 비어 있고 후보가 하나뿐인 건만 대상입니다.'); return; }
+  if(!confirm(targets.length+'건의 FIN 열이 비어 있습니다. 추출한 값(파일명 · 본문 · PDF)을 GW_Requests 에 적을까요?\n사람이 이미 넣은 값은 건드리지 않고, 「여러 개」 는 제외합니다.')) return;
+  const btn=document.getElementById('btn-save'); btn.disabled=true; let ok=0, fail=0; setProg(0,targets.length);
+  for(const r of targets){
+    try{ await api('/sites/'+siteId+'/lists/'+LIST_REQ+'/items/'+r.id+'/fields','PATCH',{ FIN: r.fin }); r.f.FIN=r.fin; r.src='열'; ok++; }
+    catch(e){ fail++; console.warn('[gwr] 저장 실패', r.f.Title, e.message); }
+    setProg(ok+fail, targets.length);
+  }
+  setProg(0,0); btn.disabled=false; render();
+  setMsg('저장 완료 — 성공 '+ok+'건'+(fail?' · 실패 '+fail+'건(콘솔 참고)':''), fail?'#a4262c':'#107c10');
+}
+</script>
+</body>
+</html>
