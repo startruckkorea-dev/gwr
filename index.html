@@ -313,9 +313,10 @@ async function resolveRow(row, mode, cache){
   const f = row.f;
   const atts = parseAttachments(f.AttachedFiles);
   const pdfs = atts.filter(a=>a.driveId&&a.itemId&&/\.pdf$/i.test(a.name));
-  const col = normFin(f.FIN);
+  // FIN 열은 09-24 부터 「A, B」 처럼 여러 대를 담을 수 있다 — 17자리 토큰을 모두 취하고, 여럿이어도 「여러 개」 로 보지 않는다(사람이 적은 값).
+  const colTokens = finCandidates(String(f.FIN||'')).map(c=>({ v:c.v, score:9 }));
   let cands = [], src = '';
-  if(col.length===17){ cands=[{v:col,score:9}]; src='열'; }
+  if(colTokens.length){ cands=colTokens; src='열'; }
   else {
     const fromNames = finCandidates(atts.map(a=>a.name).join(' \n '));
     const fromText  = finCandidates(spText(f.RequestTitle)+'\n'+spText(f.Description)+'\n'+spText(f.Title));
@@ -336,13 +337,15 @@ async function resolveRow(row, mode, cache){
   else {
     // 서로 다른 값이 둘 이상이고 점수가 같으면 사람이 골라야 한다
     const top = cands[0]; const rivals = cands.filter(c=>c.v!==top.v && c.score>=top.score);
-    row.cands = cands.map(c=>c.v); row.fin = top.v; row.src = rivals.length ? '여러개' : src;
+    row.cands = cands.map(c=>c.v);
+    if(src==='열'){ row.fin = row.cands.join(', '); row.src = '열'; }
+    else { row.fin = top.v; row.src = rivals.length ? '여러개' : src; }
   }
   // 검증 결과 — PDF 원본의 FIN 칸과 대조. 열 · 파일명 · 본문 값이 PDF 와 같으면 일치.
   row.pdfFin = pdfCands ? pdfCands[0].v : '';
   if(mode==='verify'){
     if(!pdfs.length) row.verify='PDF없음';
-    else if(pdfCands){ row.verify = (src==='PDF') ? '일치' : (row.fin===row.pdfFin ? '일치' : '불일치'); }
+    else if(pdfCands){ row.verify = (src==='PDF') ? '일치' : (row.cands.includes(row.pdfFin) ? '일치' : '불일치'); }
     else if(pdfChars===0) row.verify='글자없음';          // 스캔 이미지 PDF
     else row.verify='PDF에없음';
   } else if(mode!=='verify' && row.verify===undefined) row.verify='';
