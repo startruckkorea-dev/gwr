@@ -45,7 +45,7 @@ body{font-family:'Segoe UI',sans-serif;background:#f3f2f1;min-height:100vh;color
 .progress>div{height:100%;background:#0078d4;width:0;transition:width .2s}
 .msg{font-size:.76rem;color:#605e5c;min-height:1.1em}
 .tbl-scroll{overflow-x:auto}
-.list-table{width:100%;border-collapse:collapse;font-size:.8rem;table-layout:fixed;min-width:1180px}
+.list-table{width:100%;border-collapse:collapse;font-size:.8rem;table-layout:fixed;min-width:1270px}
 .list-table th{padding:8px 8px;text-align:left;background:#f3f2f1;border-bottom:1px solid #edebe9;font-weight:600;color:#323130;font-size:.74rem;white-space:nowrap}
 .list-table td{padding:7px 8px;border-bottom:1px solid #edebe9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:20px}
 .list-table tr:hover td{background:#f8faff}
@@ -57,6 +57,7 @@ body{font-family:'Segoe UI',sans-serif;background:#f3f2f1;min-height:100vh;color
 .badge-type{background:#e1f0ff;color:#0078d4}
 .src-열{background:#dff6dd;color:#107c10}.src-파일명{background:#e1f0ff;color:#0078d4}.src-본문{background:#ede9fe;color:#5b21b6}
 .src-PDF{background:#fff4ce;color:#7d5700}.src-미확인{background:#f3f2f1;color:#a19f9d}.src-여러개{background:#fde7e9;color:#a4262c}
+.vf-일치{background:#dff6dd;color:#107c10}.vf-불일치{background:#fde7e9;color:#a4262c}.vf-PDF없음,.vf-글자없음,.vf-PDF에없음{background:#f3f2f1;color:#a19f9d}
 .c-fin{font-family:Consolas,'Segoe UI',monospace;font-size:.76rem;letter-spacing:.02em}
 .foot{text-align:center;font-size:.72rem;color:#a19f9d;padding:14px 0 6px}
 .pager{display:flex;justify-content:center;gap:4px;margin-top:12px;flex-wrap:wrap}
@@ -107,11 +108,12 @@ body{font-family:'Segoe UI',sans-serif;background:#f3f2f1;min-height:100vh;color
     <div class="filters">
       <select id="f-status" onchange="render()"><option value="">전체 상태</option><option>대기</option><option>승인완료</option><option>반려</option><option>철회</option></select>
       <select id="f-source" onchange="render()"><option value="">전체 Source</option></select>
-      <select id="f-src" onchange="render()"><option value="">전체 출처</option><option value="열">FIN 열</option><option value="파일명">파일명</option><option value="본문">본문</option><option value="PDF">PDF</option><option value="여러개">여러 개(확인 필요)</option><option value="미확인">미확인</option></select>
+      <select id="f-src" onchange="render()"><option value="">전체 출처</option><option value="열">FIN 열</option><option value="파일명">파일명</option><option value="본문">본문</option><option value="PDF">PDF</option><option value="여러개">여러 개(확인 필요)</option><option value="미확인">미확인</option><option value="vf:불일치">PDF 불일치</option><option value="vf:일치">PDF 일치</option></select>
       <input id="f-kw" placeholder="신청자 / Title / 요청 제목 / FIN 검색" style="min-width:240px" oninput="render()">
       <span class="spacer"></span>
       <button class="btn btn-blue" id="btn-extract" onclick="runExtract(false)">🔎 FIN 추출 실행</button>
-      <button class="btn btn-gray" id="btn-extract-pdf" onclick="runExtract(true)" title="파일명 · 본문에서 못 찾은 건의 첨부 PDF 를 내려받아 본문에서 찾는다 (시간이 걸린다)">📄 PDF 까지 읽기</button>
+      <button class="btn btn-gray" id="btn-extract-pdf" onclick="runExtract('pdf')" title="파일명 · 본문에서 못 찾은 건의 첨부 PDF 를 내려받아 본문에서 찾는다 (시간이 걸린다)">📄 PDF 까지 읽기</button>
+      <button class="btn btn-gray" id="btn-verify" onclick="runExtract('verify')" title="모든 건의 첨부 PDF 본문에서 FIN 칸을 읽어 파일명 · 본문 값과 대조한다 (건당 1~2초)">✔ PDF 로 검증</button>
       <button class="btn btn-green" id="btn-excel" onclick="exportExcel()" disabled>📊 Excel 내보내기</button>
       <button class="btn btn-amber" id="btn-save" onclick="saveBack()" disabled title="FIN 열이 비어 있는 건에만, 추출한 값을 GW_Requests 에 적는다">💾 GW_Requests 에 저장</button>
     </div>
@@ -122,11 +124,11 @@ body{font-family:'Segoe UI',sans-serif;background:#f3f2f1;min-height:100vh;color
       <table class="list-table">
         <thead><tr>
           <th style="width:44px">번호</th><th style="width:178px">신청자</th><th style="width:158px">Title</th><th>요청 제목</th>
-          <th style="width:132px">Source</th><th style="width:150px">Type</th><th style="width:158px">FIN</th><th style="width:78px">출처</th>
+          <th style="width:132px">Source</th><th style="width:150px">Type</th><th style="width:158px">FIN</th><th style="width:78px">출처</th><th style="width:86px">PDF 검증</th>
           <th style="width:128px">Amount type</th><th class="c-amt" style="width:112px">Total Amount<br><span style="font-weight:400;font-size:.62rem">(VAT Excluded)</span></th>
           <th style="width:76px">상태</th><th style="width:124px">신청일</th>
         </tr></thead>
-        <tbody id="body"><tr><td colspan="12" style="text-align:center;color:#a19f9d;padding:24px">GW_Requests 를 읽는 중…</td></tr></tbody>
+        <tbody id="body"><tr><td colspan="13" style="text-align:center;color:#a19f9d;padding:24px">GW_Requests 를 읽는 중…</td></tr></tbody>
       </table>
     </div>
     <div class="pager" id="pager"></div>
@@ -145,6 +147,9 @@ body{font-family:'Segoe UI',sans-serif;background:#f3f2f1;min-height:100vh;color
      ③ 본문  — 요청 제목 · Description (예: "2. Vehicle: W1T963425R0738112 (경남99바3541)")
      ④ PDF   — 첨부 PDF 본문(pdf.js) 에서 "FIN (차대번호)" 뒤의 값. 파일을 내려받아야 하므로 「PDF 까지 읽기」 로만 돈다
    후보가 둘 이상이고 서로 다르면 「여러 개」 로 표시해 사람이 고르게 한다. 어디에도 없으면 「미확인」.
+   정확도(09-23): ②③ 은 신청자가 파일명 · 본문에 적은 값을 그대로 가져오는 것이라 오타가 있으면 그대로 따라온다.
+   「PDF 로 검증」 은 첨부 PDF 본문의 FIN 칸(신청서 원본)을 읽어 ②③ 값과 대조해 일치 · 불일치를 표시한다 — 이것이 확인의 기준.
+   PDF 본문에서 찾은 후보는 브라우저(localStorage)에 남겨 다시 내려받지 않는다.
    설계: GW 와 같은 로그인(MSAL 리다이렉트) · 같은 SharePoint 사이트. 쓰기는 「GW_Requests 에 저장」 하나뿐이고
         FIN 이 비어 있는 건만 PATCH 한다(사람이 넣은 값은 덮지 않는다).
    ═══════════════════════════════════════════════════════════════════ */
@@ -154,7 +159,7 @@ const SITE_PATH  = 'startruckkorea.sharepoint.com:/sites/STK-DB:';
 const GRAPH      = 'https://graph.microsoft.com/v1.0';
 const SCOPES     = ['User.Read','Sites.ReadWrite.All','Files.ReadWrite.All'];
 const LIST_REQ   = 'GW_Requests';
-const CACHE_KEY  = 'gwr_fin_cache_v1';    // PDF 본문에서 찾은 값은 브라우저에 남겨 다음 실행 때 다시 내려받지 않는다
+const CACHE_KEY  = 'gwr_fin_cache_v2';   // v2: 본문 대신 후보 목록만 저장    // PDF 본문에서 찾은 값은 브라우저에 남겨 다음 실행 때 다시 내려받지 않는다
 
 let msal_g = null, user = null, siteId = null;
 let _rows = [];           // { id, f, fin, src, cands, finCol }
@@ -292,61 +297,87 @@ async function pdfText(driveId, itemId){
 }
 
 function loadCache(){ try{ return JSON.parse(localStorage.getItem(CACHE_KEY)||'{}'); }catch(e){ return {}; } }
+// PDF 한 개의 후보 목록(캐시). { c:[{v,score}], n:글자 수 } — 글자 수 0 이면 스캔 이미지 PDF 다.
+async function pdfCandidates(a, cache){
+  const key = a.driveId+'|'+a.itemId;
+  if(cache[key] && Array.isArray(cache[key].c)) return cache[key];
+  let text = '';
+  try{ text = await pdfText(a.driveId, a.itemId); }catch(e){ console.warn('[gwr] PDF 읽기 실패', a.name, e.message); return { c:[], n:-1 }; }   // 실패는 캐시하지 않는다
+  const rec = { c: finCandidates(text), n: text.replace(/\s+/g,'').length };
+  cache[key] = rec; return rec;
+}
 function saveCache(c){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(c)); }catch(e){} }
 
-// 한 건 판정. readPdf=true 면 ①②③ 에서 못 찾았을 때 첨부 PDF 를 읽는다.
-async function resolveRow(row, readPdf, cache){
+// 한 건 판정. mode: false(열 · 파일명 · 본문) · 'pdf'(못 찾은 건만 PDF) · 'verify'(모든 건 PDF 를 읽어 대조)
+async function resolveRow(row, mode, cache){
   const f = row.f;
-  const col = normFin(f.FIN);
-  if(col.length===17){ row.fin=col; row.src='열'; row.cands=[col]; return; }
   const atts = parseAttachments(f.AttachedFiles);
-  const fromNames = finCandidates(atts.map(a=>a.name).join(' \n '));
-  const fromText  = finCandidates(spText(f.RequestTitle)+'\n'+spText(f.Description)+'\n'+spText(f.Title));
+  const pdfs = atts.filter(a=>a.driveId&&a.itemId&&/\.pdf$/i.test(a.name));
+  const col = normFin(f.FIN);
   let cands = [], src = '';
-  if(fromNames.length){ cands = fromNames; src = '파일명'; }
-  else if(fromText.length){ cands = fromText; src = '본문'; }
-  if(!cands.length && readPdf){
-    const pdfs = atts.filter(a=>a.driveId&&a.itemId&&/\.pdf$/i.test(a.name));
-    for(const a of pdfs){
-      const key = a.driveId+'|'+a.itemId;
-      let text = cache[key];
-      if(text === undefined){ try{ text = await pdfText(a.driveId, a.itemId); }catch(e){ text = ''; console.warn('[gwr] PDF 읽기 실패', a.name, e.message); } cache[key] = text.slice(0,20000); }
-      const c = finCandidates(text);
-      if(c.length){ cands = c; src = 'PDF'; break; }
-    }
+  if(col.length===17){ cands=[{v:col,score:9}]; src='열'; }
+  else {
+    const fromNames = finCandidates(atts.map(a=>a.name).join(' \n '));
+    const fromText  = finCandidates(spText(f.RequestTitle)+'\n'+spText(f.Description)+'\n'+spText(f.Title));
+    if(fromNames.length){ cands = fromNames; src = '파일명'; }
+    else if(fromText.length){ cands = fromText; src = '본문'; }
   }
-  if(!cands.length){ row.fin=''; row.src='미확인'; row.cands=[]; return; }
-  // 서로 다른 값이 둘 이상이고 점수가 같으면 사람이 골라야 한다
-  const top = cands[0]; const rivals = cands.filter(c=>c.v!==top.v && c.score>=top.score);
-  row.cands = cands.map(c=>c.v);
-  if(rivals.length){ row.fin=top.v; row.src='여러개'; } else { row.fin=top.v; row.src=src; }
+  // PDF 본문 — 'pdf' 는 못 찾은 건만, 'verify' 는 모든 건(캐시가 있으면 내려받지 않는다)
+  let pdfCands = null, pdfChars = null;
+  if(mode==='verify' || (mode==='pdf' && !cands.length)){
+    for(const a of pdfs){
+      const rec = await pdfCandidates(a, cache);
+      if(rec.n >= 0) pdfChars = Math.max(pdfChars||0, rec.n);
+      if(rec.c.length){ pdfCands = rec.c; break; }
+    }
+    if(!cands.length && pdfCands){ cands = pdfCands; src = 'PDF'; }
+  }
+  if(!cands.length){ row.fin=''; row.src='미확인'; row.cands=[]; }
+  else {
+    // 서로 다른 값이 둘 이상이고 점수가 같으면 사람이 골라야 한다
+    const top = cands[0]; const rivals = cands.filter(c=>c.v!==top.v && c.score>=top.score);
+    row.cands = cands.map(c=>c.v); row.fin = top.v; row.src = rivals.length ? '여러개' : src;
+  }
+  // 검증 결과 — PDF 원본의 FIN 칸과 대조. 열 · 파일명 · 본문 값이 PDF 와 같으면 일치.
+  row.pdfFin = pdfCands ? pdfCands[0].v : '';
+  if(mode==='verify'){
+    if(!pdfs.length) row.verify='PDF없음';
+    else if(pdfCands){ row.verify = (src==='PDF') ? '일치' : (row.fin===row.pdfFin ? '일치' : '불일치'); }
+    else if(pdfChars===0) row.verify='글자없음';          // 스캔 이미지 PDF
+    else row.verify='PDF에없음';
+  } else if(mode!=='verify' && row.verify===undefined) row.verify='';
 }
 
 // ── 실행 ───────────────────────────────────────────────────────────
-async function runExtract(readPdf){
-  const bE=document.getElementById('btn-extract'), bP=document.getElementById('btn-extract-pdf'); bE.disabled=bP.disabled=true;
+async function runExtract(mode){
+  const bE=document.getElementById('btn-extract'), bP=document.getElementById('btn-extract-pdf'), bV=document.getElementById('btn-verify'); bE.disabled=bP.disabled=bV.disabled=true;
   try{
     if(!_rows.length){
       setMsg('GW_Requests 를 읽는 중...');
       const d = await apiAll('/sites/'+siteId+'/lists/'+LIST_REQ+'/items?$expand=fields');
-      _rows = (d.value||[]).map(it=>({ id: it.id, f: it.fields||{}, fin:'', src:'', cands:[] }))
+      _rows = (d.value||[]).map(it=>({ id: it.id, f: it.fields||{}, fin:'', src:'', cands:[], verify:'', pdfFin:'' }))
         .sort((a,b)=> String(b.f.RequestDate||'').localeCompare(String(a.f.RequestDate||'')) || (Number(b.id)-Number(a.id)));
       const srcSel=document.getElementById('f-source'); const srcs=[...new Set(_rows.map(r=>r.f.Source).filter(Boolean))].sort();
       srcSel.innerHTML='<option value="">전체 Source</option>'+srcs.map(s=>'<option>'+escHtml(s)+'</option>').join('');
     }
     const cache = loadCache(); let done=0; setProg(0,_rows.length);
+    const label = mode==='verify' ? 'PDF 로 검증 중' : (mode==='pdf' ? 'PDF 까지 읽는 중' : '추출 중');
     for(const row of _rows){
-      await resolveRow(row, readPdf, cache);
-      done++; if(done%5===0||done===_rows.length){ setProg(done,_rows.length); setMsg((readPdf?'PDF 까지 읽는 중':'추출 중')+' … '+done+' / '+_rows.length); if(readPdf) await new Promise(r=>setTimeout(r,0)); }
+      await resolveRow(row, mode, cache);
+      done++; if(done%3===0||done===_rows.length){ setProg(done,_rows.length); setMsg(label+' … '+done+' / '+_rows.length); if(mode){ saveCache(cache); await new Promise(r=>setTimeout(r,0)); } }
     }
-    if(readPdf) saveCache(cache);
+    if(mode) saveCache(cache);
     setProg(0,0); _page=0; render();
     document.getElementById('btn-excel').disabled=false;
     document.getElementById('btn-save').disabled = !_finColumn;
     const n=_rows.length, c=cnt('열'), fn=cnt('파일명'), tx=cnt('본문'), pd=cnt('PDF'), mu=cnt('여러개'), un=cnt('미확인');
-    setMsg('완료 — 총 '+n+'건: FIN 열 '+c+' · 파일명 '+fn+' · 본문 '+tx+' · PDF '+pd+' · 여러 개 '+mu+' · 미확인 '+un+(readPdf?'':'  (미확인이 남으면 「PDF 까지 읽기」)'), '#107c10');
+    let m = '완료 — 총 '+n+'건: FIN 열 '+c+' · 파일명 '+fn+' · 본문 '+tx+' · PDF '+pd+' · 여러 개 '+mu+' · 미확인 '+un;
+    if(mode==='verify'){ const ok=_rows.filter(r=>r.verify==='일치').length, ng=_rows.filter(r=>r.verify==='불일치').length, np=_rows.filter(r=>r.verify==='PDF없음').length, ni=_rows.filter(r=>r.verify==='글자없음').length, nn=_rows.filter(r=>r.verify==='PDF에없음').length;
+      m += '  |  PDF 검증: 일치 '+ok+' · 불일치 '+ng+' · PDF 없음 '+np+' · 글자 없음(스캔) '+ni+' · PDF 에 없음 '+nn; }
+    else if(!mode) m += '  (미확인이 남으면 「PDF 까지 읽기」, 값을 확인하려면 「PDF 로 검증」)';
+    setMsg(m, '#107c10');
   }catch(e){ setProg(0,0); setMsg('오류: '+e.message, '#a4262c'); console.error(e); }
-  finally{ bE.disabled=bP.disabled=false; }
+  finally{ bE.disabled=bP.disabled=bV.disabled=false; }
 }
 function cnt(src){ return _rows.filter(r=>r.src===src).length; }
 
@@ -358,7 +389,7 @@ function filtered(){
     const f=r.f;
     if(st && (f.Status||'')!==st) return false;
     if(so && (f.Source||'')!==so) return false;
-    if(sr && r.src!==sr) return false;
+    if(sr){ if(sr.startsWith('vf:')){ if(r.verify!==sr.slice(3)) return false; } else if(r.src!==sr) return false; }
     if(kw && !([f.RequesterEmail,f.Title,f.RequestTitle,r.fin,r.cands.join(' ')].join(' ').toLowerCase().includes(kw))) return false;
     return true;
   });
@@ -369,7 +400,7 @@ function render(){
   const slice = rows.slice(_page*PAGE, _page*PAGE+PAGE);
   document.getElementById('summary').innerHTML = '<span class="pill">표시 <b>'+total+'</b> / 전체 '+_rows.length+'건</span>'
     + ['열','파일명','본문','PDF','여러개','미확인'].map(s=>'<span class="pill">'+s+' <b>'+rows.filter(r=>r.src===s).length+'</b></span>').join('');
-  if(!slice.length){ body.innerHTML='<tr><td colspan="12" style="text-align:center;color:#a19f9d;padding:24px">조회 결과가 없습니다.</td></tr>'; pager(pages); return; }
+  if(!slice.length){ body.innerHTML='<tr><td colspan="13" style="text-align:center;color:#a19f9d;padding:24px">조회 결과가 없습니다.</td></tr>'; pager(pages); return; }
   body.innerHTML = slice.map((r,i)=>{
     const f=r.f, no=total-(_page*PAGE+i);
     const amt=amountDigits(f.AmountValue);
@@ -379,6 +410,7 @@ function render(){
       + '<td>'+escHtml(f.Title||'')+'</td><td title="'+escHtml(spText(f.RequestTitle))+'">'+escHtml(spText(f.RequestTitle))+'</td>'
       + '<td><span class="badge badge-type">'+escHtml(f.Source||'')+'</span></td><td title="'+escHtml(f.GoodwillType||'')+'">'+escHtml(f.GoodwillType||'')+'</td>'
       + '<td>'+finCell+'</td><td><span class="badge src-'+escHtml(r.src)+'">'+escHtml(r.src)+'</span></td>'
+      + '<td>'+(r.verify ? '<span class="badge vf-'+escHtml(r.verify)+'" title="'+escHtml(r.verify==='불일치' ? 'PDF 값: '+r.pdfFin : (r.verify==='일치' ? 'PDF 원본과 같음' : r.verify))+'">'+escHtml(r.verify==='일치'?'✓ 일치':(r.verify==='불일치'?'✗ 불일치':r.verify))+'</span>' : '<span style="color:#c8c6c4">-</span>')+'</td>'
       + '<td>'+escHtml(fmtGWAmount(f.Amount))+'</td><td class="c-amt">'+(amt?Number(amt).toLocaleString('ko-KR'):'<span style="color:#c8c6c4">-</span>')+'</td>'
       + '<td><span class="badge badge-'+escHtml(f.Status||'대기')+'">'+escHtml(f.Status||'')+'</span></td><td>'+fmtDate(f.RequestDate)+'</td></tr>';
   }).join('');
@@ -397,12 +429,12 @@ function goPage(p){ _page=Math.max(0,p); render(); }
 // ── Excel ──────────────────────────────────────────────────────────
 function exportExcel(){
   const rows = filtered();
-  const headers = ['번호','신청자','Title','요청 제목','Source','Type','FIN','FIN 출처','FIN 후보','Amount type','Total Amount (VAT Excluded)','상태','신청일','Description'];
+  const headers = ['번호','신청자','Title','요청 제목','Source','Type','FIN','FIN 출처','PDF 검증','PDF 값','FIN 후보','Amount type','Total Amount (VAT Excluded)','상태','신청일','Description'];
   const data = [headers].concat(rows.map((r,i)=>{ const f=r.f; const amt=amountDigits(f.AmountValue);
-    return [rows.length-i, f.RequesterEmail||'', f.Title||'', spText(f.RequestTitle), f.Source||'', f.GoodwillType||'', r.fin||'', r.src||'', r.cands.join(', '), f.Amount||'', amt?Number(amt):'', f.Status||'', fmtDate(f.RequestDate), spText(f.Description)]; }));
+    return [rows.length-i, f.RequesterEmail||'', f.Title||'', spText(f.RequestTitle), f.Source||'', f.GoodwillType||'', r.fin||'', r.src||'', r.verify||'', r.pdfFin||'', r.cands.join(', '), f.Amount||'', amt?Number(amt):'', f.Status||'', fmtDate(f.RequestDate), spText(f.Description)]; }));
   const ws = XLSX.utils.aoa_to_sheet(data);
-  ws['!cols'] = [6,28,24,40,20,30,20,10,40,18,18,10,18,60].map(w=>({wch:w}));
-  for(let r=1;r<data.length;r++){ const ref=XLSX.utils.encode_cell({c:10,r}); if(ws[ref]&&typeof ws[ref].v==='number') ws[ref].z='#,##0'; }
+  ws['!cols'] = [6,28,24,40,20,30,20,10,10,20,40,18,18,10,18,60].map(w=>({wch:w}));
+  for(let r=1;r<data.length;r++){ const ref=XLSX.utils.encode_cell({c:12,r}); if(ws[ref]&&typeof ws[ref].v==='number') ws[ref].z='#,##0'; }
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'GW FIN');
   const d=new Date(); const stamp=d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
   XLSX.writeFile(wb, 'GW_FIN_Report_'+stamp+'.xlsx');
@@ -411,9 +443,9 @@ function exportExcel(){
 // ── GW_Requests 에 저장 (비어 있는 건만) ────────────────────────────
 async function saveBack(){
   if(!_finColumn){ alert('GW_Requests 에 FIN 열이 없습니다.'); return; }
-  const targets = _rows.filter(r=>r.fin && r.src!=='열' && r.src!=='여러개' && !normFin(r.f.FIN));
+  const targets = _rows.filter(r=>r.fin && r.src!=='열' && r.src!=='여러개' && r.verify!=='불일치' && !normFin(r.f.FIN));
   if(!targets.length){ alert('저장할 건이 없습니다 — FIN 열이 비어 있고 후보가 하나뿐인 건만 대상입니다.'); return; }
-  if(!confirm(targets.length+'건의 FIN 열이 비어 있습니다. 추출한 값(파일명 · 본문 · PDF)을 GW_Requests 에 적을까요?\n사람이 이미 넣은 값은 건드리지 않고, 「여러 개」 는 제외합니다.')) return;
+  if(!confirm(targets.length+'건의 FIN 열이 비어 있습니다. 추출한 값(파일명 · 본문 · PDF)을 GW_Requests 에 적을까요?\n사람이 이미 넣은 값은 건드리지 않고, 「여러 개」 와 「PDF 불일치」 는 제외합니다.')) return;
   const btn=document.getElementById('btn-save'); btn.disabled=true; let ok=0, fail=0; setProg(0,targets.length);
   for(const r of targets){
     try{ await api('/sites/'+siteId+'/lists/'+LIST_REQ+'/items/'+r.id+'/fields','PATCH',{ FIN: r.fin }); r.f.FIN=r.fin; r.src='열'; ok++; }
