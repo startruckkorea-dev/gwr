@@ -237,8 +237,10 @@ async function boot(account){
     document.getElementById('fin-notice').style.display = _finColumn ? 'none' : 'block';
     if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     // 로그인하면 바로 ①②③(열 · 파일명 · 본문) 추출을 돌려 목록을 보여 준다 — 이 화면의 목적이 그 목록이라 단추를 누를 이유가 없다(09-23).
-    // PDF 본문 읽기는 파일을 내려받아야 하므로 「PDF 까지 읽기」 로만 돈다.
+    // 그래도 미확인이 남으면 이어서 그 건들의 첨부 PDF 를 읽는다(09-24: 합의서처럼 파일명 · 본문엔 없고 PDF 표 안에만 차대번호가 있는
+    // 건이 「미확인」 으로 남았다). 한 번 읽은 PDF 는 캐시되어 다음 접속부터는 즉시 끝난다. 「PDF 로 검증」 은 여전히 단추로.
     await runExtract(false);
+    if(cnt('미확인')) await runExtract('pdf');
   }catch(e){ setMsg('SharePoint 연결 오류: '+e.message, '#a4262c'); }
 }
 
@@ -378,7 +380,8 @@ async function runExtract(mode){
     let m = '완료 — 총 '+n+'건: FIN 열 '+c+' · 파일명 '+fn+' · 본문 '+tx+' · PDF '+pd+' · 여러 개 '+mu+' · 미확인 '+un;
     if(mode==='verify'){ const ok=_rows.filter(r=>r.verify==='일치').length, ng=_rows.filter(r=>r.verify==='불일치').length, np=_rows.filter(r=>r.verify==='PDF없음').length, ni=_rows.filter(r=>r.verify==='글자없음').length, nn=_rows.filter(r=>r.verify==='PDF에없음').length;
       m += '  |  PDF 검증: 일치 '+ok+' · 불일치 '+ng+' · PDF 없음 '+np+' · 글자 없음(스캔) '+ni+' · PDF 에 없음 '+nn; }
-    else if(!mode) m += '  (미확인이 남으면 「PDF 까지 읽기」, 값을 확인하려면 「PDF 로 검증」)';
+    else if(!mode) m += '  (미확인이 남으면 이어서 PDF 를 읽습니다 · 값을 확인하려면 「PDF 로 검증」)';
+    else if(mode==='pdf') m += '  (미확인은 파일명 · 본문 · PDF 어디에도 17자리가 없거나, 스캔 이미지 PDF 인 건 · 값을 확인하려면 「PDF 로 검증」)';
     setMsg(m, '#107c10');
   }catch(e){ setProg(0,0); setMsg('오류: '+e.message, '#a4262c'); console.error(e); }
   finally{ bE.disabled=bP.disabled=bV.disabled=false; }
