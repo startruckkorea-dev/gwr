@@ -21,7 +21,7 @@ body{font-family:'Segoe UI',sans-serif;background:#f3f2f1;min-height:100vh;color
 .btn-login:disabled{opacity:.6;cursor:default}
 #login-err{color:#a4262c;font-size:.78rem;margin-top:10px;min-height:1em}
 .login-page-footer{position:fixed;bottom:0;left:0;right:0;padding:10px 24px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:rgba(255,255,255,.55);background:rgba(0,0,0,.18)}
-#app{display:none;max-width:1500px;margin:0 auto;padding:20px}
+#app{display:none;max-width:1600px;margin:0 auto;padding:20px}
 .card{background:#fff;border-radius:8px;padding:20px 24px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
 .hdr h1{font-size:1.2rem;font-weight:700;color:#323130}
@@ -123,10 +123,11 @@ body{font-family:'Segoe UI',sans-serif;background:#f3f2f1;min-height:100vh;color
     <div class="tbl-scroll">
       <table class="list-table">
         <thead><tr>
-          <th style="width:44px">번호</th><th style="width:178px">신청자</th><th style="width:158px">Title</th><th>요청 제목</th>
-          <th style="width:132px">Source</th><th style="width:150px">Type</th><th style="width:158px">FIN</th><th style="width:78px">출처</th><th style="width:86px">PDF 검증</th>
-          <th style="width:128px">Amount type</th><th class="c-amt" style="width:112px">Total Amount<br><span style="font-weight:400;font-size:.62rem">(VAT Excluded)</span></th>
-          <th style="width:76px">상태</th><th style="width:124px">신청일</th>
+          <!-- 고정 폭 합 1294px. 예전엔 1424px 이라 폭을 정하지 않은 요청 제목이 0 으로 눌려 머리글이 겹쳤다(09-24). -->
+          <th style="width:40px">번호</th><th style="width:150px">신청자</th><th style="width:150px">Title</th><th>요청 제목</th>
+          <th style="width:128px">Source</th><th style="width:120px">Type</th><th style="width:150px">FIN</th><th style="width:70px">출처</th><th style="width:80px">PDF 검증</th>
+          <th style="width:118px">Amount type</th><th class="c-amt" style="width:100px">Total Amount<br><span style="font-weight:400;font-size:.62rem">(VAT Excluded)</span></th>
+          <th style="width:76px">상태</th><th style="width:112px">신청일</th>
         </tr></thead>
         <tbody id="body"><tr><td colspan="13" style="text-align:center;color:#a19f9d;padding:24px">GW_Requests 를 읽는 중…</td></tr></tbody>
       </table>
@@ -407,8 +408,10 @@ function render(){
   body.innerHTML = slice.map((r,i)=>{
     const f=r.f, no=total-(_page*PAGE+i);
     const amt=amountDigits(f.AmountValue);
-    const finCell = r.src==='여러개' ? '<span class="c-fin" title="후보: '+escHtml(r.cands.join(', '))+'">'+escHtml(r.fin)+' <span style="color:#a4262c">+'+(r.cands.length-1)+'</span></span>'
-                  : (r.fin ? '<span class="c-fin">'+escHtml(r.fin)+'</span>' : '<span style="color:#c8c6c4">-</span>');
+    // 여러 개면 「+2」 대신 전부 늘어놓는다 — 첫 번호는 온전히, 나머지는 앞 5자 + … (전체는 툴팁 · Excel)(09-24 요청)
+    const finList = (r.cands && r.cands.length>1) ? r.cands : (r.fin ? [r.fin] : []);
+    const finShort = finList.length<=1 ? (finList[0]||'') : finList[0]+', '+finList.slice(1).map(v=>v.slice(0,5)+'…').join(', ');
+    const finCell = finList.length ? '<span class="c-fin" title="'+escHtml(finList.join(', '))+'">'+escHtml(finShort)+'</span>' : '<span style="color:#c8c6c4">-</span>';
     return '<tr><td style="color:#a19f9d">'+no+'</td><td title="'+escHtml(f.RequesterEmail||'')+'">'+escHtml(f.RequesterEmail||'')+'</td>'
       + '<td>'+escHtml(f.Title||'')+'</td><td title="'+escHtml(spText(f.RequestTitle))+'">'+escHtml(spText(f.RequestTitle))+'</td>'
       + '<td><span class="badge badge-type">'+escHtml(f.Source||'')+'</span></td><td title="'+escHtml(f.GoodwillType||'')+'">'+escHtml(f.GoodwillType||'')+'</td>'
