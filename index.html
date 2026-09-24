@@ -162,7 +162,7 @@ const SITE_PATH  = 'startruckkorea.sharepoint.com:/sites/STK-DB:';
 const GRAPH      = 'https://graph.microsoft.com/v1.0';
 const SCOPES     = ['User.Read','Sites.ReadWrite.All','Files.ReadWrite.All'];
 const LIST_REQ   = 'GW_Requests';
-const CACHE_KEY  = 'gwr_fin_cache_v3';   // v3: 조각 이어 붙이기 · I/O/Q 보정 뒤 다시 읽어야 해서 키를 올림   // v2: 본문 대신 후보 목록만 저장    // PDF 본문에서 찾은 값은 브라우저에 남겨 다음 실행 때 다시 내려받지 않는다
+const CACHE_KEY  = 'gwr_fin_cache_v4';   // v4: 라벨 뒤 띄어 쓴 번호 보정 추가 — 다시 읽어야 해서 키를 올림   // v2: 본문 대신 후보 목록만 저장    // PDF 본문에서 찾은 값은 브라우저에 남겨 다음 실행 때 다시 내려받지 않는다
 
 let msal_g = null, user = null, siteId = null;
 let _rows = [];           // { id, f, fin, src, cands, finCol }
@@ -283,6 +283,27 @@ function finCandidates(text){
     if(!/[A-Z]/.test(v) || !/[0-9]/.test(v)) continue;
     const note = [...new Set(raw.match(/[IOQ]/g))].map(c=>c+'→'+(c==='I'?'1':'0')).join(' ');
     put(v, scoreOf(v, m.index) - 1, raw, note + ' 보정');
+  }
+  /* 라벨 뒤 띄어 쓴 번호(09-24): 신청서에 「W1T964231 S0 779030」 처럼 칸 안에 공백을 넣어 적은 건이 있었다.
+     FIN · VIN · 차대번호 라벨 뒤 60자 안에서 영숫자 토큰을 차례로 이어 정확히 17자가 되면 후보로 본다.
+     영문 2자 이상 · 숫자 포함 · 첫 글자 영문이어야 하고, 중간에 다른 글자가 끼면 그만둔다(전화번호 · 날짜가 붙지 않게). */
+  const lab = /(FIN|VIN|차대\s*번호|차대번호|CHASSIS)/g;
+  while((m = lab.exec(s))){
+    const tail = s.slice(m.index + m[0].length, m.index + m[0].length + 60);
+    const toks = tail.split(/[\s\-_]+/).filter(Boolean);
+    let acc = '', rawParts = [], started = false;
+    for(const t of toks){
+      if(!/^[A-Z0-9]+$/.test(t)){ if(started) break; continue; }
+      started = true; acc += t; rawParts.push(t);
+      if(acc.length === 17) break;
+      if(acc.length > 17){ acc=''; break; }
+    }
+    if(acc.length !== 17 || rawParts.length < 2) continue;          // 한 토큰이면 위에서 이미 봤다
+    if(!/^[A-Z]/.test(acc) || (acc.match(/[A-Z]/g)||[]).length < 2 || !/[0-9]/.test(acc)) continue;
+    const raw = rawParts.join(' ');
+    const fixed = acc.replace(/[OQ]/g,'0').replace(/I/g,'1');
+    const ioq = [...new Set(acc.match(/[IOQ]/g)||[])].map(c=>c+'→'+(c==='I'?'1':'0')).join(' ');
+    put(fixed, 3 + 2 + 1 - (ioq?1:0), raw, '공백 제거' + (ioq ? ' · ' + ioq : '') + ' 보정');
   }
   return [...out.entries()].sort((a,b)=>b[1].score-a[1].score).map(([v,o])=>({ v, score:o.score, raw:o.raw||'', note:o.note||'' }));
 }
