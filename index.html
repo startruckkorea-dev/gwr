@@ -123,11 +123,12 @@ body{font-family:'Segoe UI',sans-serif;background:#f3f2f1;min-height:100vh;color
     <div class="tbl-scroll">
       <table class="list-table">
         <thead><tr>
-          <!-- 고정 폭 합 1294px. 예전엔 1424px 이라 폭을 정하지 않은 요청 제목이 0 으로 눌려 머리글이 겹쳤다(09-24). -->
-          <th style="width:40px">번호</th><th style="width:150px">신청자</th><th style="width:150px">Title</th><th>요청 제목</th>
+          <!-- 고정 폭 합 1320px(Title 162 · 신청일 126 은 「GW-2026-09-23_ID-192」 · 「2026-09-23 08:36」 이 잘리지 않는 폭).
+               예전엔 1424px 이라 폭을 정하지 않은 요청 제목이 0 으로 눌려 머리글이 겹쳤다(09-24). -->
+          <th style="width:40px">번호</th><th style="width:150px">신청자</th><th style="width:162px">Title</th><th>요청 제목</th>
           <th style="width:128px">Source</th><th style="width:120px">Type</th><th style="width:150px">FIN</th><th style="width:70px">출처</th><th style="width:80px">PDF 검증</th>
           <th style="width:118px">Amount type</th><th class="c-amt" style="width:100px">Total Amount<br><span style="font-weight:400;font-size:.62rem">(VAT Excluded)</span></th>
-          <th style="width:76px">상태</th><th style="width:112px">신청일</th>
+          <th style="width:76px">상태</th><th style="width:126px">신청일</th>
         </tr></thead>
         <tbody id="body"><tr><td colspan="13" style="text-align:center;color:#a19f9d;padding:24px">GW_Requests 를 읽는 중…</td></tr></tbody>
       </table>
