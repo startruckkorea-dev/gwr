@@ -165,7 +165,7 @@ const SITE_PATH  = 'startruckkorea.sharepoint.com:/sites/STK-DB:';
 const GRAPH      = 'https://graph.microsoft.com/v1.0';
 const SCOPES     = ['User.Read','Sites.ReadWrite.All','Files.ReadWrite.All'];
 const LIST_REQ   = 'GW_Requests';
-const CACHE_KEY  = 'gwr_fin_cache_v4';   // v4: 라벨 뒤 띄어 쓴 번호 보정 추가 — 다시 읽어야 해서 키를 올림   // v2: 본문 대신 후보 목록만 저장    // PDF 본문에서 찾은 값은 브라우저에 남겨 다음 실행 때 다시 내려받지 않는다
+const CACHE_KEY  = 'gwr_fin_cache_v5';   // v5: 후보에 등장 횟수(n)를 저장 — 다시 읽어야 해서 키를 올림   // v2: 본문 대신 후보 목록만 저장    // PDF 본문에서 찾은 값은 브라우저에 남겨 다음 실행 때 다시 내려받지 않는다
 
 let msal_g = null, user = null, siteId = null;
 let _rows = [];           // { id, f, fin, src, cands, finCol }
@@ -258,13 +258,21 @@ const FIN_RE = /(?<![A-Z0-9])[A-HJ-NPR-Z0-9]{17}(?![A-Z0-9])/g;
 /* I · O · Q 가 섞인 17자리도 본다(09-24): 신청서에 「W1T964231SO757281」 처럼 숫자 0 을 영문 O 로 적은 건이 있었다.
    FIN 에는 I · O · Q 가 없으므로 O · Q → 0, I → 1 로 바로잡아 후보로 올리되, 점수를 1 낮추고 원문과 보정 내용을 남긴다. */
 const FIN_RE_LOOSE = /(?<![A-Z0-9])[A-Z0-9]{17}(?![A-Z0-9])/g;
+/* 벤츠는 한 차량에 두 번호를 쓴다(09-25 확인, GW-2026-06-16_ID-85):
+     VIN  WDB963425 H 0081235  — 등록증 · 작업지시서의 「차대번호」, 10번째 자리가 모델연도 문자
+     FIN  WDB963425 1 0081235  — 다임러 내부 식별번호, 10번째 자리가 항상 1
+   앞 9자리와 뒤 7자리가 같으면 같은 차량이다. 검증 · 후보 정리에서 이 둘은 같은 것으로 본다. */
+function sameVehicle(a, b){ return !!a && !!b && a.length===17 && b.length===17 && a.slice(0,9)===b.slice(0,9) && a.slice(10)===b.slice(10); }
 function finCandidates(text){
-  const out = new Map();   // v → {score, raw, note}
+  const out = new Map();   // v → {score, raw, note, n}
   const s = String(text||'').toUpperCase();
+  // 같은 값이 여러 번 나오면(파일명 4개 중 4개) 점수를 조금 더 준다 — 오타 하나가 다수와 같은 무게로 「여러 개」 를 만들지 않게(09-25)
   const put = (v, score, raw, note) => {
     const cur = out.get(v);
-    if(!cur || cur.score < score) out.set(v, { score, raw: cur && !cur.raw ? '' : (cur ? cur.raw : raw), note: cur && !cur.note ? '' : (cur ? cur.note : note) });
-    else if(cur && !raw){ cur.raw=''; cur.note=''; }   // 원문 그대로인 후보가 있으면 보정 표시를 지운다
+    if(!cur) { out.set(v, { score, raw, note, n:1 }); return; }
+    cur.n++;
+    if(cur.score < score){ cur.score = score; cur.raw = raw; cur.note = note; }
+    if(!raw){ cur.raw=''; cur.note=''; }   // 원문 그대로인 후보가 있으면 보정 표시를 지운다
   };
   const scoreOf = (v, idx) => {
     const before = s.slice(Math.max(0, idx-40), idx);
@@ -308,7 +316,8 @@ function finCandidates(text){
     const ioq = [...new Set(acc.match(/[IOQ]/g)||[])].map(c=>c+'→'+(c==='I'?'1':'0')).join(' ');
     put(fixed, 3 + 2 + 1 - (ioq?1:0), raw, '공백 제거' + (ioq ? ' · ' + ioq : '') + ' 보정');
   }
-  return [...out.entries()].sort((a,b)=>b[1].score-a[1].score).map(([v,o])=>({ v, score:o.score, raw:o.raw||'', note:o.note||'' }));
+  return [...out.entries()].map(([v,o])=>({ v, score:o.score + Math.min(o.n-1, 3)*0.5, raw:o.raw||'', note:o.note||'', n:o.n }))
+    .sort((a,b)=>b.score-a.score);
 }
 function normFin(v){ return String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
 
@@ -400,9 +409,19 @@ async function resolveRow(row, mode, cache){
   row.notes = {}; cands.forEach(c=>{ if(c.note) row.notes[c.v] = c.raw+' → '+c.v+' ('+c.note+')'; });
   if(!cands.length){ row.fin=''; row.src='미확인'; row.cands=[]; }
   else {
-    // 서로 다른 값이 둘 이상이고 점수가 같으면 사람이 골라야 한다
-    const top = cands[0]; const rivals = cands.filter(c=>c.v!==top.v && c.score>=top.score);
-    row.cands = cands.map(c=>c.v);
+    // VIN/FIN 표기만 다른 후보는 하나로 합친다(점수 높은 쪽을 남기고 다른 표기는 툴팁에)
+    const merged = [];
+    for(const c of cands){
+      const m = merged.find(x=>sameVehicle(x.v, c.v));
+      if(m){ m.alt = m.alt || []; m.alt.push(c.v); continue; }
+      merged.push(Object.assign({}, c));
+    }
+    merged.forEach(m => { if(m.alt && m.alt.length) row.notes[m.v] = (row.notes[m.v] ? row.notes[m.v]+' · ' : '') + 'VIN/FIN 표기 차이: ' + m.alt.join(', '); });
+    // 서로 다른 값이 둘 이상이고 점수가 같으면 사람이 골라야 한다. 점수가 낮은 다른 값(오타 등)은 툴팁에 남긴다.
+    const top = merged[0]; const rivals = merged.filter(c=>c.v!==top.v && c.score>=top.score);
+    const minor = merged.filter(c=>c.v!==top.v && c.score<top.score);
+    if(minor.length && src!=='열') row.notes[top.v] = (row.notes[top.v] ? row.notes[top.v]+' · ' : '') + '다른 값도 보임(오타?): ' + minor.map(c=>c.v).join(', ');
+    row.cands = merged.map(c=>c.v);
     if(src==='열'){ row.fin = row.cands.join(', '); row.src = '열'; }
     else { row.fin = top.v; row.src = rivals.length ? '여러개' : src; }
   }
@@ -410,7 +429,11 @@ async function resolveRow(row, mode, cache){
   row.pdfFin = pdfCands ? pdfCands[0].v : '';
   if(mode==='verify'){
     if(!pdfs.length) row.verify='PDF없음';
-    else if(pdfCands){ row.verify = (src==='PDF') ? '일치' : (row.cands.includes(row.pdfFin) ? '일치' : '불일치'); }
+    else if(pdfCands){
+      const exact = row.cands.includes(row.pdfFin), same = row.cands.some(v=>sameVehicle(v, row.pdfFin));
+      row.verify = (src==='PDF' || exact || same) ? '일치' : '불일치';
+      if(same && !exact) row.notes[row.fin.split(', ')[0]] = (row.notes[row.fin.split(', ')[0]] ? row.notes[row.fin.split(', ')[0]]+' · ' : '') + 'PDF 는 ' + row.pdfFin + ' (VIN/FIN 표기 차이, 같은 차량)';
+    }
     else if(pdfChars===0) row.verify='글자없음';          // 스캔 이미지 PDF
     else row.verify='PDF에없음';
   } else if(mode!=='verify' && row.verify===undefined) row.verify='';
