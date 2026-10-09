@@ -80,10 +80,14 @@ html, * { scrollbar-width: thin; scrollbar-color: #CBD5E1 transparent; }
 ::-webkit-scrollbar-thumb:hover { background: #94A3B8; background-clip: padding-box; }
 </style>
 <style id="aps-mobile">
-/* APS 모바일(10-09 · aps-mobile) — 767px 이하 전용. 웹 화면 무변경 */
+/* APS 모바일(10-09 · 10-10 2차 · aps-mobile) — 767px 이하 전용. 웹 화면 무변경 */
 /* gwr: 기존 @media 0개. 헤더 단추 줄(nowrap)이 421px 로 밀던 것을 세로 배치 + 단추 3칸 꽉 채움으로, 필터 · 동작 단추는 2열로.
    V3 헤더가 아니라 .card.hdr(제목 | 계정 · 단추) 구조라 APS 공통 띠 규칙은 해당 없음. 표(1270px)는 .tbl-scroll 상자 안에서만 가로 스크롤. */
-@media (max-width: 767px) {
+@media screen and (max-width: 767px) {
+  /* ── iPhone(Safari) · Galaxy 대비 방어(10-10) — 글자 자동 확대 끔, 칸이 부모 폭을 넘지 않게(날짜 칸은 없음) ── */
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  input, select, textarea, button { max-width: 100%; box-sizing: border-box; }
+
   /* ── 로그인 ── 카드 좌우 12px 여백, 하단 안내 띠는 카드 아래 흐름으로(겹침 없음) */
   #login-screen { flex-direction: column; padding: 24px 12px 0; box-sizing: border-box; }
   #login-screen .login-card { margin: auto 0; padding: 40px 24px 28px; border-radius: 16px; }
@@ -106,7 +110,7 @@ html, * { scrollbar-width: thin; scrollbar-color: #CBD5E1 transparent; }
   /* ── 필터 · 동작 단추 ── 선택 2열 · 검색 한 줄 꽉 · 단추 2열(홀수면 마지막 꽉), 입력 글자 16px(iOS 자동 확대 방지) */
   #app .filters select { flex: 1 1 calc(50% - 4px); min-width: 0; }
   #app .filters #f-kw { flex: 1 1 100%; min-width: 0 !important; }
-  #app .filters select, #app .filters input { font-size: 16px; padding: 8px 10px; }
+  #app .filters select, #app .filters input { font-size: 16px; padding: 8px 10px; height: 40px; }   /* 검색칸 38 → 선택 · 단추와 같은 40(10-10) */
   #app .filters .spacer { display: none; }
   #app .filters .btn { flex: 1 1 calc(50% - 4px); justify-content: center; min-height: 40px; white-space: normal; text-align: center; line-height: 1.25; }
   #app .summary { gap: 6px; }
@@ -114,6 +118,11 @@ html, * { scrollbar-width: thin; scrollbar-color: #CBD5E1 transparent; }
 
   /* ── 표 · 쪽 넘김 ── 표는 상자 안에서만 가로 스크롤, 쪽 단추는 터치 크기로 */
   #app .tbl-scroll { -webkit-overflow-scrolling: touch; }
+  /* 고정 폭 열 합이 1320px 인데 표 최소 폭이 1270px 이라 「요청 제목」 열이 0 으로 눌려 머리글이 Source 위에 겹치고 값이 안 보이던 것 — 240px 확보(10-10) */
+  #app .list-table { min-width: 1560px; }
+  /* 빈 결과 · 읽는 중(한 칸짜리 줄)일 때는 머리줄을 접고 표를 화면 폭으로 — 1560px 표 가운데에 있던 「조회 결과가 없습니다」가 화면 밖(780px)이라 빈 표로 보이던 것(SCC 와 같은 방식, 10-10) */
+  #app .list-table:has(> tbody > tr:only-child > td[colspan]:only-child) { min-width: 0; }
+  #app .list-table:has(> tbody > tr:only-child > td[colspan]:only-child) > thead { display: none; }
   #app .pager button { min-width: 36px; height: 36px; }
   #app .foot { padding: 10px 4px 4px; line-height: 1.6; }
 }
