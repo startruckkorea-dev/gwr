@@ -79,6 +79,45 @@ html, * { scrollbar-width: thin; scrollbar-color: #CBD5E1 transparent; }
 ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background: #94A3B8; background-clip: padding-box; }
 </style>
+<style id="aps-mobile">
+/* APS 모바일(10-09 · aps-mobile) — 767px 이하 전용. 웹 화면 무변경 */
+/* gwr: 기존 @media 0개. 헤더 단추 줄(nowrap)이 421px 로 밀던 것을 세로 배치 + 단추 3칸 꽉 채움으로, 필터 · 동작 단추는 2열로.
+   V3 헤더가 아니라 .card.hdr(제목 | 계정 · 단추) 구조라 APS 공통 띠 규칙은 해당 없음. 표(1270px)는 .tbl-scroll 상자 안에서만 가로 스크롤. */
+@media (max-width: 767px) {
+  /* ── 로그인 ── 카드 좌우 12px 여백, 하단 안내 띠는 카드 아래 흐름으로(겹침 없음) */
+  #login-screen { flex-direction: column; padding: 24px 12px 0; box-sizing: border-box; }
+  #login-screen .login-card { margin: auto 0; padding: 40px 24px 28px; border-radius: 16px; }
+  #login-screen .login-page-footer { position: static; flex-direction: column; align-items: center; gap: 2px; width: calc(100% + 24px); margin: 24px -12px 0; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); text-align: center; line-height: 1.5; font-size: 10.5px; }
+
+  /* ── 틀 · 카드 ── */
+  #app { padding: 12px 12px 20px; }
+  #app .card { padding: 16px 14px; margin-bottom: 12px; }
+
+  /* ── 헤더 ── 제목 위 · 계정과 단추 아래, 글자 한 단계 작게, 단추 3칸 꽉 채움(터치 40px) */
+  #app .hdr { flex-direction: column; align-items: stretch; gap: 12px; }
+  #app .hdr h1 { font-size: 1.05rem; }
+  #app .hdr .sub { font-size: .74rem; line-height: 1.5; }
+  #app .hdr > div:last-child { align-items: stretch !important; padding-top: 12px; border-top: 1px solid #f0efed; }
+  #app .hdr .who { text-align: left; min-width: 0; }
+  #app .hdr .who b, #app .hdr .who span { overflow-wrap: anywhere; }
+  #app .hdr > div:last-child > div[style*="display:flex"] { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #app .hdr .btn { justify-content: center; min-height: 40px; padding: 8px 6px; }
+
+  /* ── 필터 · 동작 단추 ── 선택 2열 · 검색 한 줄 꽉 · 단추 2열(홀수면 마지막 꽉), 입력 글자 16px(iOS 자동 확대 방지) */
+  #app .filters select { flex: 1 1 calc(50% - 4px); min-width: 0; }
+  #app .filters #f-kw { flex: 1 1 100%; min-width: 0 !important; }
+  #app .filters select, #app .filters input { font-size: 16px; padding: 8px 10px; }
+  #app .filters .spacer { display: none; }
+  #app .filters .btn { flex: 1 1 calc(50% - 4px); justify-content: center; min-height: 40px; white-space: normal; text-align: center; line-height: 1.25; }
+  #app .summary { gap: 6px; }
+  #app .msg { line-height: 1.5; }
+
+  /* ── 표 · 쪽 넘김 ── 표는 상자 안에서만 가로 스크롤, 쪽 단추는 터치 크기로 */
+  #app .tbl-scroll { -webkit-overflow-scrolling: touch; }
+  #app .pager button { min-width: 36px; height: 36px; }
+  #app .foot { padding: 10px 4px 4px; line-height: 1.6; }
+}
+</style>
 </head>
 <body>
 
