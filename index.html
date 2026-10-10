@@ -744,6 +744,53 @@ function pager(pages){
 function goPage(p){ _page=Math.max(0,p); render(); }
 
 // ── Excel ──────────────────────────────────────────────────────────
+/* ── Excel 내보내기 전용 글자 정리(10-10 XLSX-1010) ───────────────────────────────
+   SharePoint 「여러 줄 텍스트」 값은 ExternalClass div 래퍼 · br 태그 · 엔티티(&#58; &amp; …)를 붙여 온다.
+   화면은 이미 걷어내 보여 주는데 Excel 쪽은 원문이 그대로 나가 「Link &#58; https&#58;//…」 처럼 찍혔다.
+   ① 줄 태그(br · /p · /div · /li · /tr)는 줄바꿈으로, 나머지 HTML 태그는 지운다 — 태그 이름 모양이 아닌 꺾쇠 글자(예: 꺾쇠로 감싼 한글)는 남긴다.
+   ② 엔티티는 한 번만 푼다(&amp;#58; → 「&#58;」 글자 — 브라우저와 같다). 10진 · 16진 숫자와 이름 엔티티 모두.
+      표에 없는 이름 엔티티만 DOMParser(스크립트 · 리소스가 돌지 않는 문서)에 「&이름;」 한 토막을 넘겨 푼다 — 사용자 HTML 은 넘기지 않는다.
+   ③ 줄 끝 공백 · 3줄 이상 빈 줄 · 앞뒤 공백 · XML 에 넣을 수 없는 제어 문자를 걷고 한 칸 한도(32,767자) 안으로 자른다.
+   화면 표시(escHtml 등)는 손대지 않는다. 값은 SheetJS 가 문자열 셀로 쓰므로 = + - @ 로 시작해도 수식이 되지 않는다. */
+const _XL_ENT = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', AMP: '&', LT: '<', GT: '>', QUOT: '"' };
+const _XL_C1 = { 128: 8364, 130: 8218, 131: 402, 132: 8222, 133: 8230, 134: 8224, 135: 8225, 136: 710, 137: 8240, 138: 352, 139: 8249, 140: 338, 142: 381,
+  145: 8216, 146: 8217, 147: 8220, 148: 8221, 149: 8226, 150: 8211, 151: 8212, 152: 732, 153: 8482, 154: 353, 155: 8250, 156: 339, 158: 382, 159: 376 };
+const _xlEntCache = new Map();
+function _xlDecodeEnt(s) {
+  return String(s).replace(/&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});/g, (m, e) => {
+    if (e.charAt(0) === '#') {
+      let n = /^#[xX]/.test(e) ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      if (_XL_C1[n]) n = _XL_C1[n];
+      if (n === 9 || n === 10) return String.fromCharCode(n);
+      if (n === 13) return '\n';
+      if (n < 32 || (n >= 127 && n < 160) || (n >= 0xD800 && n <= 0xDFFF) || n > 0x10FFFF) return '';
+      return String.fromCodePoint(n);
+    }
+    if (Object.prototype.hasOwnProperty.call(_XL_ENT, e)) return _XL_ENT[e];
+    if (_xlEntCache.has(e)) return _xlEntCache.get(e);
+    let r = m;
+    try { const t = new DOMParser().parseFromString(m, 'text/html').body.textContent; if (t && t !== m) r = t; } catch (x) {}
+    _xlEntCache.set(e, r);
+    return r;
+  });
+}
+function _xlText(v) {
+  if (v == null) return '';
+  if (typeof v === 'number') return v;
+  let s = String(v).replace(/\r\n?/g, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|tr|h[1-6]|blockquote|pre)\s*>/gi, '\n')
+    .replace(/<!-{2}[\s\S]*?-{2}>/g, '')
+    .replace(/<\/?[A-Za-z][A-Za-z0-9:-]*(?:\s[^<>]*)?\/?>/g, '');
+  s = _xlDecodeEnt(s)
+    .replace(/\u00a0/g, ' ')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\uFFFE\uFFFF]/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (s.length > 32767) s = s.slice(0, 32766) + '…';
+  return s;
+}
 function exportExcel(){
   if(!_authorized) return;
   const rows = filtered();
@@ -753,7 +800,7 @@ function exportExcel(){
   const headers = ['번호','신청자','Title','요청 제목','Source','Type','FIN','FIN 출처','PDF 검증','PDF 값','FIN 후보','Amount type','Total Amount (VAT Excluded)','상태','신청일','Description'];
   const data = [headers].concat(rows.map((r,i)=>{ const f=r.f; const amt=amountDigits(f.AmountValue);
     const candTxt = r.cands.map(v=>(r.notes||{})[v] ? v+' ['+(r.notes||{})[v]+']' : v).join(', ');
-    return [rows.length-i, f.RequesterEmail||'', f.Title||'', spText(f.RequestTitle), f.Source||'', f.GoodwillType||'', r.fin||'', r.src||'', r.verify||'', r.pdfFin||'', candTxt, f.Amount||'', amt?Number(amt):'', f.Status||'', fmtDate(f.RequestDate), spText(f.Description)]; }));
+    return [rows.length-i, f.RequesterEmail||'', f.Title||'', _xlText(f.RequestTitle), f.Source||'', f.GoodwillType||'', r.fin||'', r.src||'', r.verify||'', r.pdfFin||'', candTxt, f.Amount||'', amt?Number(amt):'', f.Status||'', fmtDate(f.RequestDate), _xlText(f.Description)]; }));   // 여러 줄 텍스트는 Excel 전용 정리(XLSX-1010)
   const ws = XLSX.utils.aoa_to_sheet(data);
   ws['!cols'] = [6,28,24,40,20,30,20,10,10,20,40,18,18,10,18,60].map(w=>({wch:w}));
   for(let r=1;r<data.length;r++){ const ref=XLSX.utils.encode_cell({c:12,r}); if(ws[ref]&&typeof ws[ref].v==='number') ws[ref].z='#,##0'; }
