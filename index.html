@@ -234,6 +234,7 @@ let msal_g = null, user = null, siteId = null;
 let _rows = [];           // { id, f, fin, src, cands, finCol }
 let _finColumn = false;   // GW_Requests 에 FIN 열이 있는가
 let _page = 0; const PAGE = 50;
+let _authorized = false;  // 관리자 명단 확인을 통과했는가(10-10) — 통과 전에는 목록 · Excel · 저장 함수가 아무것도 하지 않는다
 
 // ── 공통 헬퍼 ──────────────────────────────────────────────────────
 function escHtml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
@@ -279,6 +280,128 @@ async function apiAll(path){
   return { value: items };
 }
 
+/* ── 접근 권한 · 이력 (10-10) ───────────────────────────────────────
+   이 화면은 GW_Requests 전 건(신청자 · 금액 · Description · 첨부)을 보여 주고 Excel 로 내보내며 FIN 을 고친다 —
+   GW 관리자 탭과 같은 범위라 같은 사람만 들어오게 한다.
+   · 명단: system_config_final.xlsx(문서 라이브러리 루트) 1열 키 GWR_ADMIN_1, _2 …(번호 빈칸 허용) 의 C열 이메일.
+     이 키가 하나도 없으면 GW 관리자 명단(GW_ADMIN_N · ADMIN_SP — GW 와 같은 계산)을 쓴다.
+   · 설정을 못 읽거나 명단이 비면 아무도 못 들어온다(닫힌 쪽이 기본). 로그인 계정의 mail · UPN 둘 다 비교(대소문자 무시).
+   · 이력: Logging_data/GWR/YYYY-MM-DD/HHmmss_user_rand.json — 접근 · 접근 차단 · Excel 내보내기 · FIN 저장(직접 입력 · 일괄).
+     GW 의 logAction 과 같은 JSON · 같은 폴더 규칙 · 같은 제외 규칙(Role 이 IT Manager · IT system service 인 계정은 남기지 않음). */
+const LOG_SYSTEM = 'GWR';
+const ADMIN_KEY_PREFIX = 'GWR_ADMIN_';
+let _sysConfig = null, _docDriveId = null;
+async function _getDocDriveId(){
+  if(_docDriveId) return _docDriveId;
+  const drivesRes = await api('/sites/' + siteId + '/drives');
+  let d = (drivesRes.value || []).find(x => ['Documents','문서','Shared Documents'].includes(x.name));
+  if(!d && drivesRes.value && drivesRes.value.length) d = drivesRes.value[0];
+  if(!d) throw new Error('문서 라이브러리를 찾지 못했습니다');
+  return (_docDriveId = d.id);
+}
+const LOG_SKIP_ROLES = ['it manager', 'it system service'];
+const _logSkipEmails = new Set();
+function logSkipCollect(row){
+  const role = String(row[3] || '').trim().toLowerCase(), em = String(row[2] || '').trim().toLowerCase();
+  if(em && LOG_SKIP_ROLES.includes(role)) _logSkipEmails.add(em);
+}
+async function loadSystemConfig(){
+  if(_sysConfig) return _sysConfig;
+  try{
+    const driveId = await _getDocDriveId();
+    const t = await token();
+    const res = await fetch(GRAPH + '/drives/' + driveId + '/root:/system_config_final.xlsx:/content', { headers: { Authorization: 'Bearer ' + t } });
+    if(!res.ok) throw new Error('system_config_final.xlsx 읽기 실패 (HTTP ' + res.status + ')');
+    const wb = XLSX.read(await res.arrayBuffer(), { type: 'array' });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
+    const cfg = {};
+    rows.forEach(row => {
+      const key = (row[0] || '').toString().trim();
+      if(!key || key.startsWith('[') || key.startsWith('■') || key.startsWith('※') || key === '설정 KEY' || key === '설정 키 (KEY)' || key.startsWith('이 파일') || key.startsWith('STK')) return;
+      cfg[key] = { name: (row[1] || '').toString().trim(), email: (row[2] || '').toString().trim() };
+      logSkipCollect(row);
+    });
+    _sysConfig = cfg;
+    return cfg;
+  }catch(e){ console.warn('[Config] system_config_final.xlsx 로드 실패:', e.message); return null; }
+}
+function cfgEmails(cfg, keys){   // GW 와 같은 계산 — _ADMIN_N 은 1 부터 끊김 없이 이어진 번호까지
+  const expanded = [];
+  keys.forEach(k => {
+    const m = k.match(/^(.+_ADMIN_)[0-9]+$/);
+    if(m){ let n = 1; while(cfg && cfg[m[1] + n]){ expanded.push(m[1] + n); n++; } } else expanded.push(k);
+  });
+  return [...new Set(expanded)].map(k => (cfg && cfg[k] ? cfg[k].email : '')).filter(Boolean);
+}
+function gwrAdmins(cfg){
+  if(!cfg) return { key: '', list: [] };
+  const P = ADMIN_KEY_PREFIX.toUpperCase();
+  const own = Object.keys(cfg).filter(k => k.toUpperCase().startsWith(P) && /^\d+$/.test(k.slice(P.length)))
+    .map(k => String(cfg[k].email || '').trim().toLowerCase()).filter(Boolean);
+  if(own.length) return { key: ADMIN_KEY_PREFIX + 'N', list: [...new Set(own)] };
+  return { key: 'GW_ADMIN_N · ADMIN_SP', list: [...new Set(cfgEmails(cfg, ['GW_ADMIN_1', 'ADMIN_SP']).map(e => String(e).trim().toLowerCase()))] };
+}
+function myIds(){ return [user && user.email, user && user.username].map(x => String(x || '').trim().toLowerCase()).filter(Boolean); }
+const _ensuredLogFolders = new Set();
+async function _ensureLogFolder(driveId, folderPath, t){
+  if(_ensuredLogFolders.has(folderPath)) return true;
+  const parts = folderPath.split('/').filter(Boolean); let cur = '';
+  try{
+    for(const part of parts){
+      const nextPath = cur ? cur + '/' + part : part;
+      const checkRes = await fetch(`${GRAPH}/drives/${driveId}/root:/${nextPath}`, { headers: { Authorization: 'Bearer ' + t } });
+      if(checkRes.ok){ cur = nextPath; continue; }
+      const parentUrl = cur ? `${GRAPH}/drives/${driveId}/root:/${cur}:/children` : `${GRAPH}/drives/${driveId}/root/children`;
+      const res = await fetch(parentUrl, { method: 'POST', headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: part, folder: {}, '@microsoft.graph.conflictBehavior': 'fail' }) });
+      if(!res.ok && res.status !== 409){ console.warn('[Log] 폴더 생성 실패:', nextPath, res.status); return false; }
+      cur = nextPath;
+    }
+    _ensuredLogFolders.add(folderPath); return true;
+  }catch(e){ console.warn('[Log] 폴더 생성 오류:', e.message); return false; }
+}
+async function logSkipped(){
+  if(!_sysConfig && siteId){ try{ await loadSystemConfig(); }catch(e){} }   // 못 읽으면 남긴다(이력을 잃지 않는 쪽)
+  return myIds().some(e => _logSkipEmails.has(e));
+}
+// fire-and-forget — 화면 동작을 막지 않는다. 다만 Excel · 저장처럼 이력이 꼭 남아야 하는 동작은 await 로 기다릴 수도 있게 프라미스를 돌려준다.
+function logAction(action, detail){
+  return (async () => {
+    try{
+      if(!siteId) return false;
+      if(await logSkipped()) return true;
+      const driveId = await _getDocDriveId();
+      const t = await token();
+      const now = new Date(new Date().getTime() + 9*3600*1000);
+      const p2 = n => String(n).padStart(2,'0');
+      const dateStr = `${now.getUTCFullYear()}-${p2(now.getUTCMonth()+1)}-${p2(now.getUTCDate())}`;
+      const timeStr = `${p2(now.getUTCHours())}${p2(now.getUTCMinutes())}${p2(now.getUTCSeconds())}`;
+      const rawUser = (user && (user.email || user.username)) || 'unknown';
+      const userTag = rawUser.split('@')[0].replace(/[^a-zA-Z0-9._-]/g, '_');
+      const rand = Math.random().toString(36).slice(2, 6);
+      const folderPath = `Logging_data/${LOG_SYSTEM}/${dateStr}`;
+      if(!(await _ensureLogFolder(driveId, folderPath, t))) return false;
+      const body = JSON.stringify({ timestampKST: `${dateStr} ${p2(now.getUTCHours())}:${p2(now.getUTCMinutes())}:${p2(now.getUTCSeconds())}`,
+        user: rawUser, system: LOG_SYSTEM, action, detail: detail || {} });
+      const res = await fetch(GRAPH + '/drives/' + driveId + '/root:/' + folderPath + '/' + timeStr + '_' + userTag + '_' + rand + '.json:/content',
+        { method: 'PUT', headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body });
+      if(!res.ok){ console.warn('[Log] 기록 실패:', res.status); return false; }
+      return true;
+    }catch(e){ console.warn('[Log] 기록 실패(무시됨):', e.message); return false; }
+  })();
+}
+// 차단 화면 — 로그인 카드 자리를 그대로 쓴다(새 CSS 없이 기존 모양)
+function showDeny(html, contact){
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = '';
+  const card = document.querySelector('#login-screen .login-card');
+  card.innerHTML = '<div class="login-logo">🔒</div><div class="login-title">접근 권한 없음</div>'
+    + '<div class="login-co">Goodwill FIN Report</div>'
+    + '<div class="login-guide" style="color:#605e5c;line-height:1.7">' + html + '</div>'
+    + '<button class="btn-login" onclick="signOut()">다른 계정으로 로그인</button>'
+    + '<div style="font-size:.75rem;color:#a19f9d;margin-top:18px;line-height:1.6">이 접근 시도는 이력에 기록됩니다.' + (contact ? '<br>문의 — ' + escHtml(contact) : '') + '</div>';
+}
+
 window.addEventListener('load', async () => {
   const btn = document.getElementById('btn-login');
   const fallback = setTimeout(()=>{ if(btn&&btn.disabled){ btn.disabled=false; btn.textContent='Hyosung M365 계정으로 로그인'; } }, 5000);
@@ -295,12 +418,33 @@ window.addEventListener('load', async () => {
 
 async function boot(account){
   user = account;
+  _authorized = false;
+  const lb = document.getElementById('btn-login'); if(lb){ lb.disabled = true; lb.textContent = '권한 확인 중...'; }
+  // 명단(system_config)은 mail 로 적혀 있다 — UPN 과 다를 수 있어 Graph mail 도 받아 둘 다 비교한다(GW 와 같은 방식)
+  try{ const me = await api('/me?$select=mail,userPrincipalName'); user.email = String((me && (me.mail || me.userPrincipalName)) || account.username || '').toLowerCase(); }
+  catch(e){ user.email = String(account.username || '').toLowerCase(); }
+  let cfg = null;
+  try{ const site = await api('/sites/'+SITE_PATH); siteId = site.id; cfg = await loadSystemConfig(); }
+  catch(e){ console.warn('[gwr] 사이트 · 설정 확인 실패:', e.message); }
+  const contact = cfg ? ((cfg.GW_CONTACT && cfg.GW_CONTACT.email) || (cfg.CONTACT_EMAIL && cfg.CONTACT_EMAIL.email) || '') : '';
+  if(!cfg){
+    showDeny('설정 파일(system_config_final.xlsx)을 읽지 못해 권한을 확인할 수 없습니다.<br>새로고침(F5) 후에도 같으면 IT팀에 알려 주세요.', contact);
+    logAction('접근 차단', { reason: '설정 읽기 실패', account: myIds()[0] || '' });
+    return;
+  }
+  const adm = gwrAdmins(cfg);
+  if(!adm.list.length || !myIds().some(e => adm.list.includes(e))){
+    showDeny('Goodwill 관리자 전용 화면입니다.<br>로그인 계정 <b>' + escHtml(myIds()[0] || account.name || '') + '</b> 에는 권한이 없습니다.', contact);
+    logAction('접근 차단', { reason: adm.list.length ? '관리자 명단에 없음' : '관리자 명단이 비어 있음', 명단: adm.key, admins: adm.list.length, account: myIds()[0] || '' });
+    return;
+  }
+  _authorized = true;
+  logAction('접근', { 명단: adm.key, account: myIds()[0] || '' });
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='block';
   document.getElementById('hdr-name').textContent = account.name || account.username;
   document.getElementById('hdr-email').textContent = account.username || '';
   try{
-    const site = await api('/sites/'+SITE_PATH); siteId = site.id;
     try{ const cols = await api('/sites/'+siteId+'/lists/'+LIST_REQ+'/columns?$select=name'); _finColumn = (cols.value||[]).some(c=>c.name==='FIN'); }catch(e){ _finColumn=false; }
     document.getElementById('fin-notice').style.display = _finColumn ? 'none' : 'block';
     if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -504,6 +648,7 @@ async function resolveRow(row, mode, cache){
 
 // ── 실행 ───────────────────────────────────────────────────────────
 async function runExtract(mode){
+  if(!_authorized) return;
   const bE=document.getElementById('btn-extract'), bP=document.getElementById('btn-extract-pdf'), bV=document.getElementById('btn-verify'); bE.disabled=bP.disabled=bV.disabled=true;
   try{
     if(!_rows.length){
@@ -589,7 +734,11 @@ function goPage(p){ _page=Math.max(0,p); render(); }
 
 // ── Excel ──────────────────────────────────────────────────────────
 function exportExcel(){
+  if(!_authorized) return;
   const rows = filtered();
+  // GW 관리자 Excel 과 같이 이력에 남긴다(10-10) — 건수 · 필터
+  logAction('Excel 내보내기', { 건수: rows.length, 필터: { 상태: document.getElementById('f-status').value || '전체', Source: document.getElementById('f-source').value || '전체',
+    출처: document.getElementById('f-src').value || '전체', 검색어: document.getElementById('f-kw').value.trim() } });
   const headers = ['번호','신청자','Title','요청 제목','Source','Type','FIN','FIN 출처','PDF 검증','PDF 값','FIN 후보','Amount type','Total Amount (VAT Excluded)','상태','신청일','Description'];
   const data = [headers].concat(rows.map((r,i)=>{ const f=r.f; const amt=amountDigits(f.AmountValue);
     const candTxt = r.cands.map(v=>(r.notes||{})[v] ? v+' ['+(r.notes||{})[v]+']' : v).join(', ');
@@ -606,6 +755,7 @@ function exportExcel(){
 /* 스캔 이미지 PDF 는 글자가 없어 기계로 못 읽는다(OCR 도 흐린 스캔에선 글자를 바꿔 읽어 믿을 수 없었다).
    그런 건은 📎 로 첨부를 열어 눈으로 읽고 ✎ 로 적는다 — FIN 열에 바로 저장되고 출처는 「열」 이 된다. */
 async function editFin(id){
+  if(!_authorized) return;
   const r = _rows.find(x=>String(x.id)===String(id)); if(!r) return;
   const cur = normFin(r.f.FIN) ? r.f.FIN : (r.fin||'');
   const v = prompt('FIN (차대번호) — 여러 대면 쉼표로 구분\n'+(r.f.Title||''), cur||'');
@@ -616,12 +766,15 @@ async function editFin(id){
   if(odd.length && !confirm('17자리가 아닌 값이 있습니다: '+odd.join(', ')+'\n그대로 저장할까요?')) return;
   const joined = toks.join(', ');
   try{
+    const before = r.f.FIN || '';
     await api('/sites/'+siteId+'/lists/'+LIST_REQ+'/items/'+r.id+'/fields','PATCH',{ FIN: joined });
+    logAction('FIN 저장', { 방식: '직접 입력', id: r.id, Title: r.f.Title || '', 이전: before, 새값: joined });
     r.f.FIN = joined; r.fin = joined; r.src = '열'; r.cands = toks; r.notes = {}; if(r.verify) r.verify = (r.pdfFin && toks.includes(r.pdfFin)) ? '일치' : r.verify;
     render(); setMsg('저장했습니다 — '+(r.f.Title||'')+' · '+joined, '#107c10');
-  }catch(e){ alert('저장 실패: '+e.message); }
+  }catch(e){ logAction('FIN 저장 실패', { 방식: '직접 입력', id: r.id, Title: r.f.Title || '', 값: joined, 오류: String(e.message || e).slice(0, 200) }); alert('저장 실패: '+e.message); }
 }
 async function openAttachment(id){
+  if(!_authorized) return;
   const r = _rows.find(x=>String(x.id)===String(id)); if(!r) return;
   const atts = parseAttachments(r.f.AttachedFiles).filter(a=>a.driveId&&a.itemId);
   if(!atts.length){ alert('열 수 있는 첨부가 없습니다.'); return; }
@@ -639,18 +792,23 @@ async function openAttachment(id){
 
 // ── GW_Requests 에 저장 (비어 있는 건만) ────────────────────────────
 async function saveBack(){
+  if(!_authorized) return;
   if(!_finColumn){ alert('GW_Requests 에 FIN 열이 없습니다.'); return; }
   const targets = _rows.filter(r=>r.fin && r.src!=='열' && r.src!=='여러개' && r.verify!=='불일치' && !normFin(r.f.FIN));
   if(!targets.length){ alert('저장할 건이 없습니다 — FIN 열이 비어 있고 후보가 하나뿐인 건만 대상입니다.'); return; }
   if(!confirm(targets.length+'건의 FIN 열이 비어 있습니다. 추출한 값(파일명 · 본문 · PDF)을 GW_Requests 에 적을까요?\n사람이 이미 넣은 값은 건드리지 않고, 「여러 개」 와 「PDF 불일치」 는 제외합니다.')) return;
   const btn=document.getElementById('btn-save'); btn.disabled=true; let ok=0, fail=0; setProg(0,targets.length);
+  const okList=[], failList=[];
   for(const r of targets){
-    try{ await api('/sites/'+siteId+'/lists/'+LIST_REQ+'/items/'+r.id+'/fields','PATCH',{ FIN: r.fin }); r.f.FIN=r.fin; r.src='열'; ok++; }
-    catch(e){ fail++; console.warn('[gwr] 저장 실패', r.f.Title, e.message); }
+    const src=r.src;
+    try{ await api('/sites/'+siteId+'/lists/'+LIST_REQ+'/items/'+r.id+'/fields','PATCH',{ FIN: r.fin }); r.f.FIN=r.fin; r.src='열'; ok++; okList.push({ id:r.id, Title:r.f.Title||'', FIN:r.fin, 출처:src }); }
+    catch(e){ fail++; failList.push({ id:r.id, Title:r.f.Title||'', FIN:r.fin, 오류:String(e.message||e).slice(0,120) }); console.warn('[gwr] 저장 실패', r.f.Title, e.message); }
     setProg(ok+fail, targets.length);
   }
+  logAction('FIN 저장', { 방식: '일괄(GW_Requests 에 저장)', 대상: targets.length, 성공: ok, 실패: fail, 건: okList.slice(0, 300), 실패건: failList.slice(0, 300) });
   setProg(0,0); btn.disabled=false; render();
-  setMsg('저장 완료 — 성공 '+ok+'건'+(fail?' · 실패 '+fail+'건(콘솔 참고)':''), fail?'#a4262c':'#107c10');
+  // 실패한 건은 콘솔이 아니라 화면에 Title 로 알린다(10-10)
+  setMsg('저장 완료 — 성공 '+ok+'건'+(fail?' · 실패 '+fail+'건: '+failList.slice(0,5).map(x=>x.Title||('#'+x.id)).join(', ')+(fail>5?' 외 '+(fail-5)+'건':'')+' — 다시 「GW_Requests 에 저장」 을 누르면 남은 건만 다시 적습니다':''), fail?'#a4262c':'#107c10');
 }
 </script>
 </body>
