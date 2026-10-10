@@ -46,6 +46,11 @@ body{font-family:'Segoe UI',sans-serif;background:#f3f2f1;min-height:100vh;color
 .msg{font-size:.76rem;color:#605e5c;min-height:1.1em}
 .tbl-scroll{overflow-x:auto}
 .list-table{width:100%;border-collapse:collapse;font-size:.8rem;table-layout:fixed;min-width:1270px}
+/* aps-web-fix gwr(10-10) — 고정 폭 열 합이 1320px 인데 최소 폭이 1270px 이라 폭을 정하지 않은 「요청 제목」 열이
+   1440px 화면에서 32px, 1280px 이하에서 0px 로 눌려 머리글이 Source 위에 겹치고 값이 안 보였다.
+   웹 화면(768px 이상)은 #app 최대 본문 폭(1600 - 좌우 여백 40)과 같은 1560px 로 — 요청 제목 240px,
+   그보다 좁은 화면은 표 상자(.tbl-scroll) 안에서만 가로 스크롤. 모바일(767px 이하)은 aps-mobile 이 같은 1560px, 인쇄는 그대로(screen 한정). */
+@media screen and (min-width:768px){.list-table{min-width:1560px}}
 .list-table th{padding:8px 8px;text-align:left;background:#f3f2f1;border-bottom:1px solid #edebe9;font-weight:600;color:#323130;font-size:.74rem;white-space:nowrap}
 .list-table td{padding:7px 8px;border-bottom:1px solid #edebe9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:20px}
 .list-table tr:hover td{background:#f8faff}
@@ -185,7 +190,8 @@ html, * { scrollbar-width: thin; scrollbar-color: #CBD5E1 transparent; }
       <table class="list-table">
         <thead><tr>
           <!-- 고정 폭 합 1320px(Title 162 · 신청일 126 은 「GW-2026-09-23_ID-192」 · 「2026-09-23 08:36」 이 잘리지 않는 폭).
-               예전엔 1424px 이라 폭을 정하지 않은 요청 제목이 0 으로 눌려 머리글이 겹쳤다(09-24). -->
+               예전엔 1424px 이라 폭을 정하지 않은 요청 제목이 0 으로 눌려 머리글이 겹쳤다(09-24).
+               표 최소 폭(웹 1560px)에서 이 합을 뺀 240px 이 요청 제목 몫 — 열을 넓히면 최소 폭도 같이 올린다(10-10). -->
           <th style="width:40px">번호</th><th style="width:150px">신청자</th><th style="width:162px">Title</th><th>요청 제목</th>
           <th style="width:128px">Source</th><th style="width:120px">Type</th><th style="width:150px">FIN</th><th style="width:70px">출처</th><th style="width:80px">PDF 검증</th>
           <th style="width:118px">Amount type</th><th class="c-amt" style="width:100px">Total Amount<br><span style="font-weight:400;font-size:.62rem">(VAT Excluded)</span></th>
