@@ -794,9 +794,10 @@ function _xlText(v) {
 function exportExcel(){
   if(!_authorized) return;
   const rows = filtered();
-  // GW 관리자 Excel 과 같이 이력에 남긴다(10-10) — 건수 · 필터
-  logAction('Excel 내보내기', { 건수: rows.length, 필터: { 상태: document.getElementById('f-status').value || '전체', Source: document.getElementById('f-source').value || '전체',
-    출처: document.getElementById('f-src').value || '전체', 검색어: document.getElementById('f-kw').value.trim() } });
+  // GW 관리자 Excel 과 같이 이력에 남긴다(10-10) — 건수 · 필터. 기록은 파일을 만든 뒤에(10-15) — 예전에는 만들기 전에 남겨 실패해도 「Excel 내보내기」 가 남았다
+  const _xlLog = { 건수: rows.length, 필터: { 상태: document.getElementById('f-status').value || '전체', Source: document.getElementById('f-source').value || '전체',
+    출처: document.getElementById('f-src').value || '전체', 검색어: document.getElementById('f-kw').value.trim() } };
+  try {
   const headers = ['번호','신청자','Title','요청 제목','Source','Type','FIN','FIN 출처','PDF 검증','PDF 값','FIN 후보','Amount type','Total Amount (VAT Excluded)','상태','신청일','Description'];
   const data = [headers].concat(rows.map((r,i)=>{ const f=r.f; const amt=amountDigits(f.AmountValue);
     const candTxt = r.cands.map(v=>(r.notes||{})[v] ? v+' ['+(r.notes||{})[v]+']' : v).join(', ');
@@ -807,6 +808,8 @@ function exportExcel(){
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'GW FIN');
   const d=new Date(); const stamp=d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
   XLSX.writeFile(wb, 'GW_FIN_Report_'+stamp+'.xlsx');
+  } catch (e) { logAction('Excel 내보내기 실패', Object.assign({}, _xlLog, { 오류: String((e && e.message) || e || '').slice(0, 200) })); throw e; }   // 실패도 남기고 예외는 원래대로(10-15)
+  logAction('Excel 내보내기', _xlLog);
 }
 
 // ── 한 건 직접 입력 · 첨부 열기 ───────────────────────────────────
