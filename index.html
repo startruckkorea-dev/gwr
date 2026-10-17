@@ -380,7 +380,7 @@ function logAction(action, detail){
   return (async () => {
     try{
       if(!siteId) return false;
-      if(await logSkipped()) return true;
+      const _itLog = await logSkipped();   // IT 운영 계정(설정 Role: IT Manager · IT system service) 기록은 Logging_data/System/<시스템>/… 에 따로 쌓는다(10-17 — 예전엔 남기지 않았다)
       const driveId = await _getDocDriveId();
       const t = await token();
       const now = new Date(new Date().getTime() + 9*3600*1000);
@@ -390,7 +390,7 @@ function logAction(action, detail){
       const rawUser = (user && (user.email || user.username)) || 'unknown';
       const userTag = rawUser.split('@')[0].replace(/[^a-zA-Z0-9._-]/g, '_');
       const rand = Math.random().toString(36).slice(2, 6);
-      const folderPath = `Logging_data/${LOG_SYSTEM}/${dateStr}`;
+      const folderPath = `Logging_data/${_itLog ? 'System/' : ''}${LOG_SYSTEM}/${dateStr}`;
       if(!(await _ensureLogFolder(driveId, folderPath, t))) return false;
       const body = JSON.stringify({ timestampKST: `${dateStr} ${p2(now.getUTCHours())}:${p2(now.getUTCMinutes())}:${p2(now.getUTCSeconds())}`,
         user: rawUser, system: LOG_SYSTEM, action, detail: detail || {} });
